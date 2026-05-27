@@ -9,3 +9,5 @@ clean_pth_files.py
 **/__pycache__/**
 examples/output/
 data/
+DETRPose_Colab_Training.ipynb
+predictions/

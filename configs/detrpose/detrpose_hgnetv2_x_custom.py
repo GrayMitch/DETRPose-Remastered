@@ -11,10 +11,10 @@ from src.misc.get_param_dicts import get_optim_params
 from torch import optim
 
 # ── Output / training ────────────────────────────────────────────────────────
-training_params.output_dir = "output/detrpose_hgnetv2_x_custom"
-training_params.epochs = 52
-training_params.use_ema = True
-training_params.grad_accum_steps = 1
+training_params["output_dir"] = "output/detrpose_hgnetv2_x_custom"
+training_params["epochs"] = 100
+training_params["use_ema"] = True
+training_params["grad_accum_steps"] = 1
 
 ema = L(ModelEMA)(
     decay=0.9999,
