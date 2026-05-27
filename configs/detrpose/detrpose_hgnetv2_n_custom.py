@@ -11,8 +11,8 @@ from src.misc.get_param_dicts import get_optim_params
 from torch import optim
 
 # ── Output / training ────────────────────────────────────────────────────────
-training_params.output_dir = "output/detrpose_hgnetv2_s_custom"
-training_params.epochs = 100
+training_params.output_dir = "output/detrpose_hgnetv2_n_custom"
+training_params.epochs = 160
 training_params.use_ema = True
 training_params.grad_accum_steps = 1
 
@@ -41,13 +41,24 @@ lr_scheduler = L(optim.lr_scheduler.MultiStepLR)(
     gamma=0.1
     )
 
-# ── Backbone (HGNetV2-S / B0) ─────────────────────────────────────────────
+# ── Backbone (HGNetV2-N / B0 nano) ────────────────────────────────────────
 model.backbone.name = 'B0'
 model.backbone.use_lab = True
-model.encoder.in_channels = [256, 512, 1024]
-model.encoder.depth_mult = 0.34
-model.encoder.expansion = 0.5
+model.backbone.return_idx = [2, 3]
+model.encoder.in_channels = [512, 1024]
+model.encoder.feat_strides = [16, 32]
+model.encoder.n_levels = 2
+model.encoder.use_encoder_idx = [1]
+model.encoder.depth_mult = 0.5
+model.encoder.expansion = 0.34
+model.encoder.hidden_dim = 128
+model.encoder.dim_feedforward = 512
 model.transformer.num_decoder_layers = 3
+model.transformer.num_feature_levels = 2
+model.transformer.dim_feedforward = 512
+model.transformer.feat_strides = [16, 32]
+model.transformer.hidden_dim = 128
+model.transformer.dec_n_points = 6
 
 # ── Dataset-derived parameters (read from data/coco/train/coco_instances.json)
 model.transformer.num_body_points = NUM_BODY_POINTS
@@ -66,7 +77,7 @@ postprocessor.num_body_points = NUM_BODY_POINTS
 dataset_train.dataset.transforms.policy = {
     'name': 'stop_epoch',
     'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
-    'epoch': [5, 53, 96]
+    'epoch': [5, 83, 156]
     }
-dataset_train.collate_fn.base_size_repeat = 20
-dataset_train.collate_fn.stop_epoch = 96
+dataset_train.collate_fn.base_size_repeat = None
+dataset_train.collate_fn.stop_epoch = 156
