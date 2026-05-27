@@ -213,13 +213,9 @@ class DeformableTransformerDecoderLayer(nn.Module):
     def with_pos_embed(tensor, pos, training):
         if pos is not None:
             np = pos.shape[2]
-            # if training:
-            #     x1, x2 = tensor.split([1, np], dim=2)
-            #     x2 = x2 + pos
-            #     tensor = torch.concat((x1, x2), dim=2)
-            # else:
-            #     tensor[:, :, -np:] += pos
-            tensor[:, :, -np:] += pos
+            prefix = tensor[:, :, :-np]
+            suffix = tensor[:, :, -np:] + pos
+            return torch.cat([prefix, suffix], dim=2)
         return tensor
     def forward_FFN(self, tgt):
         tgt2 = self.linear2(self.dropout2(self.activation(self.linear1(tgt))))

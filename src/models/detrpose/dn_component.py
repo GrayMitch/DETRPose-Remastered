@@ -31,7 +31,8 @@ def get_sigmas(num_keypoints, device):
             1.07, 1.07, 0.67
         ]) / 10.0
     else:
-        raise ValueError(f'Unsupported keypoints number {num_keypoints}')
+        # Uniform sigmas for custom keypoint counts
+        sigmas = np.ones(num_keypoints, dtype=np.float32) * 0.05
     sigmas = np.concatenate([[0.1], sigmas]) # for the center of the human
     sigmas = torch.tensor(sigmas, device=device, dtype=torch.float32)
     return sigmas[None, :, None]

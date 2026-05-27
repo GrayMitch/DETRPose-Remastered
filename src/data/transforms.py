@@ -90,7 +90,7 @@ def crop(image, target, region):
     return cropped_image, target
 
 
-def hflip(image, target):
+def hflip(image, target, flip_pairs=None):
     flipped_image = F.hflip(image)
 
     w, h = image.size
@@ -102,10 +102,10 @@ def hflip(image, target):
         target["boxes"] = boxes
 
     if "keypoints" in target:
-        flip_pairs = [[1, 2], [3, 4], [5, 6], [7, 8],
-                           [9, 10], [11, 12], [13, 14], [15, 16]]
+        if flip_pairs is None:
+            flip_pairs = [[1, 2], [3, 4], [5, 6], [7, 8],
+                          [9, 10], [11, 12], [13, 14], [15, 16]]
         keypoints = target["keypoints"]
-        # keypoints[:,:,0] = w - keypoints[:,:, 0]
         keypoints[:,:,0] = torch.where(keypoints[..., -1]!=0, w - keypoints[:,:, 0]-1, 0)
         for pair in flip_pairs:
             keypoints[:,pair[0], :], keypoints[:,pair[1], :] = keypoints[:,pair[1], :], keypoints[:,pair[0], :].clone()
@@ -248,12 +248,13 @@ class RandomCrop(object):
 
 
 class RandomHorizontalFlip(object):
-    def __init__(self, p=0.5):
+    def __init__(self, p=0.5, flip_pairs=None):
         self.p = p
+        self.flip_pairs = flip_pairs
 
     def __call__(self, img, target):
         if random.random() < self.p:
-            return hflip(img, target)
+            return hflip(img, target, self.flip_pairs)
         return img, target
 
 

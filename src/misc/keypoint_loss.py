@@ -61,7 +61,8 @@ class OKSLoss(nn.Module):
                 1.07, 1.07, 0.67
             ]) / 10.0
         else:
-            raise ValueError(f'Unsupported keypoints number {num_keypoints}')
+            # Use uniform sigmas for custom keypoint counts
+            self.sigmas = np.ones(num_keypoints, dtype=np.float32) * 0.05
 
     def forward(self,
                 pred,

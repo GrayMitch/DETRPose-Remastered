@@ -106,7 +106,8 @@ class ConvertCocoPolysToMask(object):
         anno = [obj for obj in anno if obj['num_keypoints'] != 0]
         keypoints = [obj["keypoints"] for obj in anno]
         boxes = [obj["bbox"] for obj in anno]
-        keypoints = torch.as_tensor(keypoints, dtype=torch.float32).reshape(-1, 17, 3)
+        num_kpts = len(keypoints[0]) // 3 if keypoints else 17
+        keypoints = torch.as_tensor(keypoints, dtype=torch.float32).reshape(-1, num_kpts, 3)
         # guard against no boxes via resizing
         boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         boxes[:, 2:] += boxes[:, :2]

@@ -32,6 +32,12 @@ class CocoEvaluator(object):
         for iou_type in iou_types:
             self.coco_eval[iou_type] = COCOeval(coco_gt, iouType=iou_type)
             self.coco_eval[iou_type].useCats = useCats
+            # Fix sigmas for non-17-keypoint datasets
+            if iou_type == 'keypoints':
+                num_kpts = len(coco_gt.loadCats(coco_gt.getCatIds())[0].get('keypoints', [None]*17))
+                if num_kpts != 17:
+                    self.coco_eval[iou_type].params.kpt_oks_sigmas = \
+                        np.ones(num_kpts, dtype=np.float64) * 0.05
 
         self.img_ids = []
         self.eval_imgs = {k: [] for k in iou_types}
@@ -67,6 +73,11 @@ class CocoEvaluator(object):
         for iou_type in self.iou_types:
             self.coco_eval[iou_type] = COCOeval(self.coco_gt, iouType=iou_type)
             self.coco_eval[iou_type].useCats = self.useCats
+            if iou_type == 'keypoints':
+                num_kpts = len(self.coco_gt.loadCats(self.coco_gt.getCatIds())[0].get('keypoints', [None]*17))
+                if num_kpts != 17:
+                    self.coco_eval[iou_type].params.kpt_oks_sigmas = \
+                        np.ones(num_kpts, dtype=np.float64) * 0.05
 
         self.img_ids = []
         self.eval_imgs = {k: [] for k in self.iou_types}

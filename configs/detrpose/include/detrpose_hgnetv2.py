@@ -91,7 +91,8 @@ criterion = L(Criterion)(
 		cost_class=2.0,
 		cost_keypoints=10.0,
         cost_oks=4.0,
-		focal_alpha=0.25
+		focal_alpha=0.25,
+		num_body_points=17
 		),
     num_body_points=17
 	)

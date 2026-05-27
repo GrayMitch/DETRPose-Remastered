@@ -38,7 +38,8 @@ class HungarianMatcher(nn.Module):
                 .79, .79
             ]) / 10.0
         else:
-            raise NotImplementedError
+            # Uniform sigmas for custom keypoint counts
+            self.sigmas = np.ones(num_body_points, dtype=np.float32) * 0.05
 
     @torch.no_grad()
     def forward(self, outputs, targets):
