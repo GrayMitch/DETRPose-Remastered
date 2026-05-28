@@ -24,6 +24,8 @@ import time
 import atexit
 import random
 import numpy as np
+import shutil
+import os
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -51,6 +53,45 @@ def safe_get_rank():
 class Trainer(object):
     def __init__(self, cfg):
         self.cfg = cfg
+        self.last_backup_epoch = -1
+
+    def _backup_output_to_gdrive(self, epoch):
+        """Backup output directory to Google Drive every N epochs."""
+        args = self.cfg.training_params
+        
+        # Check if backup is configured
+        if not hasattr(args, 'backup_every_n_epochs') or args.backup_every_n_epochs <= 0:
+            return
+        
+        if not hasattr(args, 'gdrive_backup_path'):
+            return
+            
+        # Only backup on the specified interval
+        if epoch % args.backup_every_n_epochs != 0:
+            return
+            
+        # Avoid duplicate backups
+        if epoch == self.last_backup_epoch:
+            return
+            
+        if not dist_utils.is_main_process():
+            return
+            
+        try:
+            backup_path = Path(args.gdrive_backup_path)
+            backup_path.mkdir(parents=True, exist_ok=True)
+            
+            # Copy all files from output directory to backup
+            for item in self.output_dir.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, backup_path / item.name)
+                elif item.is_dir() and item.name not in ['summary']:  # Skip tensorboard logs
+                    shutil.copytree(item, backup_path / item.name, dirs_exist_ok=True)
+            
+            self.last_backup_epoch = epoch
+            print(f'[Backup] Epoch {epoch}: Output backed up to Google Drive at {backup_path}')
+        except Exception as e:
+            print(f'[Backup] Warning: Backup failed for epoch {epoch}: {e}')
 
     def _setup(self,):
         """Avoid instantiating unnecessary classes"""
@@ -235,10 +276,16 @@ class Trainer(object):
                 self.lr_scheduler.step()
 
             if self.output_dir:
+                # Always save the latest checkpoint (overwrites each epoch)
                 checkpoint_paths = [self.output_dir / 'checkpoint.pth']
-                # extra checkpoint before LR drop and every 100 epochs
-                if (epoch + 1) % args.save_checkpoint_interval == 0:
-                    checkpoint_paths.append(self.output_dir / f'checkpoint{epoch:04}.pth')
+                
+                # Save numbered checkpoint at intervals
+                save_numbered = (epoch + 1) % args.save_checkpoint_interval == 0
+                if save_numbered:
+                    numbered_checkpoint = self.output_dir / f'checkpoint{epoch:04}.pth'
+                    checkpoint_paths.append(numbered_checkpoint)
+                
+                # Save all checkpoints
                 for checkpoint_path in checkpoint_paths:
                     weights = {
                         'model': self.model_without_ddp.state_dict(),
@@ -250,6 +297,21 @@ class Trainer(object):
                         'args': args,
                     }
                     dist_utils.save_on_master(weights, checkpoint_path)
+                
+                # Clean up old numbered checkpoints (keep only the most recent one)
+                if save_numbered and dist_utils.is_main_process():
+                    import glob
+                    numbered_ckpts = sorted(glob.glob(str(self.output_dir / 'checkpoint[0-9]*.pth')))
+                    # Keep only the most recent numbered checkpoint
+                    for old_ckpt in numbered_ckpts[:-1]:
+                        try:
+                            os.remove(old_ckpt)
+                            print(f'[Cleanup] Removed old checkpoint: {Path(old_ckpt).name}')
+                        except Exception as e:
+                            print(f'[Cleanup] Warning: Could not remove {old_ckpt}: {e}')
+
+            # Backup to Google Drive if configured
+            self._backup_output_to_gdrive(epoch)
 
             module = self.ema.module if self.ema is not None else self.model
                     
