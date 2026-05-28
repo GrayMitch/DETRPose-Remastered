@@ -1,80 +1,74 @@
 
 <h2 align="center">
-  DETRPose: Real-time end-to-end transformer model for multi-person pose estimation
+  DETRPose-Remastered: Real-time end-to-end transformer model for custom pose estimation
 </h2>
 
 <p align="center">
   <a href="https://github.com/SebastianJanampa/DETRPose/blob/main/LICENSE">
-        <img alt="colab" src="https://img.shields.io/badge/license-apache%202.0-blue?style=for-the-badge">
+        <img alt="license" src="https://img.shields.io/badge/license-apache%202.0-blue?style=for-the-badge">
   </a>
 
   <a href="https://www.arxiv.org/abs/2506.13027">
         <img alt="arxiv" src="https://img.shields.io/badge/-paper-gray?style=for-the-badge&logo=arxiv&labelColor=red">
   </a>
-  
-  <a href="https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb">
-        <img alt="colab" src="https://img.shields.io/badge/-colab-blue?style=for-the-badge&logo=googlecolab&logoColor=white&labelColor=%23daa204&color=yellow">
-  </a>
-
-  <a href="https://huggingface.co/spaces/SebasJanampa/DETRPose">
-      <img src='https://img.shields.io/badge/-SPACE-orange?style=for-the-badge&logo=huggingface&logoColor=white&labelColor=FF5500&color=orange'>
-   </a>
-   
 </p>
 
 <p align="center">
-    📄 This is the official implementation of the paper:
+    📄 This repository is a fork and extension of the original DETRPose implementation:
     <br>
     <a href="https://www.arxiv.org/abs/2506.13027">DETRPose: Real-time end-to-end transformer model for multi-person pose estimation</a>
-</p>
-
-</p>
-
-
-<p align="center">
-Sebastian Janampa and Marios Pattichis
-</p>
-
-<p align="center">
-The University of New Mexico
-  <br>
-Department of Electrical and Computer Engineering
+    <br>
+    by Sebastian Janampa and Marios Pattichis (The University of New Mexico)
 </p>
 
 ---
+
+## Table of Contents
+- [About This Fork](#about-this-fork)
+- [Key Technical Features](#key-technical-features)
+- [Model Zoo](#model-zoo)
+- [Quick Start](#quick-start)
+  - [Setup](#setup)
+  - [Data Preparation](#data-preparation)
+  - [Usage](#usage)
+- [Tools](#tools)
+- [Citation](#citation)
+- [Acknowledgement](#acknowledgement)
+- [License](#license)
+
+---
+
+## About This Fork
+
+This is an extended version of [DETRPose](https://github.com/SebastianJanampa/DETRPose) with added support for **custom datasets** and **custom keypoint configurations**. The original DETRPose is the first real-time end-to-end transformer model for multi-person pose estimation, achieving state-of-the-art results on COCO and CrowdPose datasets.
+
+### New Features
+
+- ✨ **Custom Dataset Support**: Train on your own pose estimation datasets with custom keypoint definitions
+- 🎯 **Flexible Keypoint Configuration**: Define custom keypoint structures and skeleton connections via JSON
+- 🎭 **Mask Annotation Support**: Support for segmentation masks alongside keypoint annotations
+- 📦 **Automated Data Extraction**: Built-in support for .7z archives with automatic extraction
+- 🔧 **Enhanced Inference Tools**: Improved inference scripts with custom category support
+- 📊 **Custom Category Management**: Easy configuration of custom object categories
+
 <p align="center">
     <a href="https://paperswithcode.com/sota/multi-person-pose-estimation-on-crowdpose?p=detrpose-real-time-end-to-end-transformer">
     <img src="https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/detrpose-real-time-end-to-end-transformer/multi-person-pose-estimation-on-crowdpose">
     </a>
 </p>
 
-<p align="center">
-    <img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/metrics.png">
-    </a>
-</p>
+## Key Technical Features
 
-
-DETRPose is the first real-time end-to-end transformer model for multi-person pose estimation, 
-achieving outstanding results on the COCO and CrowdPose datasets. In this work, we propose a 
-new denoising technique suitable for pose estimation that uses the Object Keypoint Similarity (OKS) 
-metric to generate positive and negative queries. Additionally, we develop a new classification head 
-and a new classification loss that are variations of the LQE head and the varifocal loss used in D-FINE.
-
-<details open>
-<summary> Video </summary>
-We conduct object detection using DETRPose to show its efficiency and low latency.
-  
-https://github.com/user-attachments/assets/de3f4ee3-182b-43f8-a40b-1aa3bee54e51
-
-</details>
-
-## 🚀 Updates
-- [x] **\[2025.06.02\]** Release DETRPose code and weights.
-- [x] **\[2025.06.04\]** Release [Google Colab Notebook](https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb).
-- [x] **\[2025.06.04\]** Release [HuggingFace 🤗 Space](https://huggingface.co/spaces/SebasJanampa/DETRPose).
-- [x] **\[2025.06.17\]** Release paper on [arxiv](https://www.arxiv.org/abs/2506.13027).
+DETRPose introduces:
+- **OKS-based Denoising**: A new denoising technique using Object Keypoint Similarity (OKS) metric for generating positive and negative queries
+- **Advanced Classification Head**: Variations of the LQE head and varifocal loss adapted from D-FINE
+- **Real-time Performance**: Achieves state-of-the-art accuracy while maintaining real-time inference speeds
+- **End-to-end Architecture**: Fully transformer-based model without complex post-processing
 
 ## Model Zoo
+
+The original DETRPose weights are available from the [original repository](https://github.com/SebastianJanampa/DETRPose/releases). These weights achieve state-of-the-art performance on standard benchmarks.
+
 ### COCO val2017
 | Model  | AP | AP<sup>50</sup> | AP<sup>75</sup> | AR | AR<sup>50</sup> | #Params | Latency | GFLOPs | config | checkpoint |
 | :---: | :---: |  :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | 
@@ -107,9 +101,6 @@ https://github.com/user-attachments/assets/de3f4ee3-182b-43f8-a40b-1aa3bee54e51
 
 ## Quick start
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SebastianJanampa/DETRPose/blob/main/DETRPose_tutorial.ipynb)
-[![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/SebasJanampa/DETRPose)
-
 ### Setup
 
 ```shell
@@ -119,21 +110,20 @@ pip install -r requirements.txt
 ```
 
 ### Data Preparation
+
+#### Option 1: Standard Datasets (COCO/CrowdPose)
+
 Create a folder named `data` to store the datasets
 ```
-configs
-src
-tools
-data
+data/
   ├── COCO2017
-    ├── train2017
-    ├── val2017
-    ├── test2017
-    └── annotations
+  │   ├── train2017
+  │   ├── val2017
+  │   ├── test2017
+  │   └── annotations
   └── crowdpose
-    ├── images
-    └── annotations
-
+      ├── images
+      └── annotations
 ```
 
 <details>
@@ -157,8 +147,99 @@ unzip images.zip
 ```
 </details>
 
+#### Option 2: Custom Dataset
+
+For training on your own custom pose estimation dataset:
+
+```
+data/
+  └── coco/  # or your dataset name
+      ├── Info.json              # Dataset metadata
+      ├── kpts_definition.json   # Keypoint definitions and skeleton
+      ├── train/
+      │   ├── coco_instances.json
+      │   ├── images/
+      │   └── masks/            # Optional: segmentation masks
+      │       ├── 00000000.json
+      │       ├── 00000000.png
+      │       └── ...
+      └── val/
+          ├── coco_instances.json
+          ├── images/
+          └── masks/            # Optional: segmentation masks
+```
+
+**Custom Dataset Configuration**:
+
+1. **kpts_definition.json**: Define your keypoint structure
+```json
+{
+  "categories": [
+    {
+      "super_category": "default",
+      "category": "your_category_name",
+      "keypoint_count": 11,
+      "keypoints_names": ["kp0", "kp1", "kp2", ...],
+      "keypoint_connection_rules": {
+        "skeleton": [["kp0", "kp1"], ["kp1", "kp2"], ...]
+      }
+    }
+  ]
+}
+```
+
+2. **Info.json**: Basic dataset metadata
+```json
+{
+  "description": "Your dataset description",
+  "version": "1.0"
+}
+```
+
+3. **coco_instances.json**: COCO-format annotations with custom keypoints
+
+4. **Configure the model**: Use or modify `configs/detrpose/detrpose_hgnetv2_*_custom.py` files to match your dataset settings.
+
+**Key Features of Custom Dataset Support**:
+- 📊 **Automatic Parameter Detection**: NUM_CLASSES and NUM_BODY_POINTS are automatically derived from your annotations
+- 🗜️ **7z Archive Support**: Automatically extracts `.7z` archives for train/val folders if directories don't exist
+- 🎯 **Flexible Keypoint Structures**: Support for any number of keypoints and custom skeleton definitions
+- 🎨 **Mask Annotations**: Optional support for segmentation masks alongside keypoint annotations
+- 🔄 **Multiple Categories**: Support for multiple object categories with different keypoint structures
+- ⚙️ **Easy Configuration**: Simple JSON-based configuration files for dataset metadata
+
 ### Usage
+
+**Note**: The examples below use Unix-style commands. For Windows users:
+- Replace `export model=s` with `$env:model="s"` (PowerShell) or `set model=s` (CMD)
+- Use backslashes `\` instead of forward slashes `/` for paths if needed
+- You can use `torchrun` directly without `CUDA_VISIBLE_DEVICES` prefix
+
 <details open>
+  <summary> Custom Dataset </summary>
+  
+1. Set Model
+```shell
+export model=s # n s m l x
+```
+
+2. Training
+```shell
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py --config_file configs/detrpose/detrpose_hgnetv2_${model}_custom.py --device cuda --amp --pretrain dfine_${model}_obj365 
+```
+
+3. Testing
+```shell
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py --config_file configs/detrpose/detrpose_hgnetv2_${model}_custom.py --device cuda --amp --resume <PTH_FILE_PATH> --eval
+```
+
+4. Inference
+```shell
+python tools/scripts/inference.py --checkpoint <PTH_FILE_PATH> --input <IMAGE_OR_FOLDER> --output <OUTPUT_FOLDER>
+```
+</details>
+
+<details>
   <summary> COCO2017 dataset </summary>
   
 1. Set Model
@@ -188,7 +269,7 @@ After running the command. You'll get a file named `results.json`. Compress it a
 
 5. Replicate results (optional)
 ```shell
-# First, download the official weights
+# First, download the official weights from the original DETRPose repository
 wget https://github.com/SebastianJanampa/DETRPose/releases/download/model_weights/detrpose_hgnetv2_${model}.pth
 
 # Second, run evaluation
@@ -220,7 +301,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4  tra
 
 4. Replicate results (optional)
 ```shell
-# First, download the official weights
+# First, download the official weights from the original DETRPose repository
 wget https://github.com/SebastianJanampa/DETRPose/releases/download/model_weights/detrpose_hgnetv2_${model}_crowdpose.pth
 
 # Second, run evaluation
@@ -235,6 +316,34 @@ All latency experiments using Lambda.ai instances. We have provided two README f
   2. to install a [TensorRT `.deb`](https://github.com/SebastianJanampa/DETRPose/blob/main/assets/TENSORRT_DEB_LAMBDA.AI.md) in a Lambda.ai instance
 
 ## Tools
+
+### Inference Scripts
+
+This repository includes multiple inference options:
+
+<details>
+<summary> Custom Inference Script </summary>
+
+The `tools/scripts/inference.py` provides an easy-to-use interface for custom datasets:
+
+```shell
+python tools/scripts/inference.py \
+    --checkpoint output/detrpose_hgnetv2_s_custom/checkpoint_best_regular.pth \
+    --input path/to/image_or_folder \
+    --output predictions/ \
+    --conf_thresh 0.35 \
+    --device cuda
+```
+
+**Features**:
+- Supports both images and folders
+- Automatic EMA weight loading
+- Configurable confidence threshold
+- Custom category name mapping
+- Color-coded visualization
+
+</details>
+
 <details>
 <summary> Deployment </summary>
 
@@ -348,9 +457,11 @@ python tools/benchmark/torch_benchmark.py -c ./configs/detrpose/detrpose_hgnetv2
 
 
 ## Citation
-If you use `DETRPose` or its methods in your work, please cite the following BibTeX entries:
+
+### Original DETRPose Paper
+If you use DETRPose or its methods in your work, please cite the original paper:
 <details open>
-<summary> bibtex </summary>
+<summary> BibTeX </summary>
 
 ```latex
 @misc{janampa2025detrpose,
@@ -365,15 +476,27 @@ If you use `DETRPose` or its methods in your work, please cite the following Bib
 ```
 </details>
 
-## Acknowledgement
-This work was supported in part by [Lambda.ai](https://lambda.ai).
+### This Repository
+If you use the custom dataset features or enhancements from this fork, please also link to this repository:
+```
+https://github.com/GrayMitch/DETRPose-Remastered
+```
 
-Our work is built upon [DEIM](https://github.com/Intellindust-AI-Lab/DEIM/tree/main), [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
+## Acknowledgement
+
+This repository is a fork and extension of [DETRPose](https://github.com/SebastianJanampa/DETRPose) by Sebastian Janampa and Marios Pattichis from The University of New Mexico.
+
+The original DETRPose work was supported in part by [Lambda.ai](https://lambda.ai).
+
+The original DETRPose implementation builds upon [DEIM](https://github.com/Intellindust-AI-Lab/DEIM/tree/main), [D-FINE](https://github.com/Peterande/D-FINE), [Detectron2](https://github.com/facebookresearch/detectron2/tree/main), and [GroupPose](https://github.com/Michel-liu/GroupPose/tree/main).
+
+### Additional Features
+The custom dataset support and enhancements in this fork extend the original implementation to support flexible pose estimation on custom datasets with arbitrary keypoint configurations.
 
 ✨ Feel free to contribute and reach out if you have any questions! ✨
 
-<div align="left">
-  <a href="https://lambda.ai" target="_blank">
-  	<img src="https://github.com/SebastianJanampa/DETRPose/blob/main/assets/lambda_logo2.png" width=500 >
-  </a>
-</div>
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+**Note**: This is a fork of the original DETRPose repository. Please ensure you comply with the licenses of all dependencies and the original work when using this code.
