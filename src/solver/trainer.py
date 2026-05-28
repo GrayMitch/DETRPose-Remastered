@@ -109,10 +109,6 @@ class Trainer(object):
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Fixed input size (640×640) — let cuDNN auto-tune the fastest kernels once
-        if self.device.type == "cuda":
-            torch.backends.cudnn.benchmark = True
-
         self.model_without_ddp = instantiate(self.cfg.model).to(self.device)
         self.model = dist_utils.warp_model(
             self.model_without_ddp.to(args.device), 

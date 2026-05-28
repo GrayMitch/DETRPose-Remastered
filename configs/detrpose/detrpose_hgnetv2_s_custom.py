@@ -62,11 +62,4 @@ criterion.matcher.cost_oks = 4.0
 
 postprocessor.num_body_points = NUM_BODY_POINTS
 
-# ── Augmentation schedule ─────────────────────────────────────────────────
-dataset_train.dataset.transforms.policy = {
-    'name': 'stop_epoch',
-    'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
-    'epoch': [5, 53, 96]
-    }
-dataset_train.collate_fn.base_size_repeat = 20
-dataset_train.collate_fn.stop_epoch = 96
+

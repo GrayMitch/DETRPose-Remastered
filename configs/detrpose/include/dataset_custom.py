@@ -94,26 +94,14 @@ dataset_train = L(DataLoader)(
 		img_folder=TRAIN_IMG,
 		ann_file=TRAIN_ANN,
 		transforms=L(Compose)(
-			policy={
-				'name': 'stop_epoch',
-				'ops': ['Mosaic', 'RandomCrop', 'RandomZoomOut'],
-				'epoch': [5, 29, 48]
-				},
-			mosaic_prob=0.5,
-			transforms1=L(T.Mosaic)(output_size=320, probability=1.0),
-			transforms2=L(T.RandomZoomOut)(p=0.5),
-			transforms3=L(T.RandomHorizontalFlip)(flip_pairs=[]),
-			transforms4=L(T.ColorJitter)(),
-			transforms5=L(T.RandomResize)(sizes=scales, max_size=max_size),
-			transforms6=L(T.ToTensor)(),
-			transforms7=L(T.Normalize)(mean=[0, 0, 0], std=[1, 1, 1])
+			transforms1=L(T.RandomResize)(sizes=scales, max_size=max_size),
+			transforms2=L(T.ToTensor)(),
+			transforms3=L(T.Normalize)(mean=[0, 0, 0], std=[1, 1, 1])
 			),
 		),
 	total_batch_size=8,
 	collate_fn=L(BatchImageCollateFunction)(
 		base_size=eval_spatial_size[0],
-		base_size_repeat=4,
-		stop_epoch=48,
 		),
 	num_workers=4,
 	shuffle=True,
