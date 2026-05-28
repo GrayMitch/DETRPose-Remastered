@@ -215,7 +215,12 @@ class Criterion(nn.Module):
         return losses
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
-        assert 'pred_boxes' in outputs
+        if 'pred_boxes' not in outputs:
+            device = outputs['pred_logits'].device
+            return {
+                'loss_bbox': torch.as_tensor(0., device=device),
+                'loss_giou': torch.as_tensor(0., device=device),
+            }
         idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs['pred_boxes'][idx]  # normalized cxcywh
         target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)  # normalized cxcywh
