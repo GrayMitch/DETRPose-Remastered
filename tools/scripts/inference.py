@@ -333,10 +333,8 @@ class DETRPoseInference:
             # Draw keypoints/skeleton first in the object's colour.
             points = self.draw_skeleton(vis, kps, color)
 
-            label_anchor = None
-
-            # If the postprocessor returns boxes, draw the box and place label there.
-            if boxes is not None:
+            # Draw bounding box and label only if the model provides bbox information
+            if boxes is not None and len(boxes) > i:
                 x1, y1, x2, y2 = boxes[i][:4]
 
                 # If normalized, scale to original image size.
@@ -355,14 +353,7 @@ class DETRPoseInference:
 
                 cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
                 label_anchor = (x1, y1)
-            else:
-                # Fallback when there are no boxes: place label next to the object's keypoint cluster.
-                label_anchor = self._get_label_anchor_from_keypoints(points, w, h)
-
-            if label_anchor is None:
-                label_anchor = (10, 35 + i * 35)
-
-            self.draw_label(vis, text, label_anchor, color)
+                self.draw_label(vis, text, label_anchor, color)
 
         output_path = output_dir / f"pred_{image_path.name}"
         cv2.imwrite(str(output_path), vis)
@@ -394,6 +385,29 @@ class DETRPoseInference:
             self.infer_image(img_path, output_dir)
 
 
+def auto_detect_config(checkpoint_path):
+    """
+    Auto-detect the config module from checkpoint path.
+    Example: output/detrpose_hgnetv2_n_custom/checkpoint.pth
+             -> configs.detrpose.detrpose_hgnetv2_n_custom
+    """
+    checkpoint_path = Path(checkpoint_path)
+    
+    # Try to extract config name from parent directory
+    parent_dir = checkpoint_path.parent.name
+    
+    # Check if parent directory matches a config pattern
+    if parent_dir.startswith("detrpose_"):
+        config_module = f"configs.detrpose.{parent_dir}"
+        print(f"Auto-detected config: {config_module}")
+        return config_module
+    
+    # Fallback to default
+    print("Warning: Could not auto-detect config from checkpoint path.")
+    print("Using default: configs.detrpose.detrpose_hgnetv2_s_custom")
+    return "configs.detrpose.detrpose_hgnetv2_s_custom"
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -406,8 +420,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default="configs.detrpose.detrpose_hgnetv2_s_custom",
-        help="Python module path to the training config",
+        default=None,
+        help="Python module path to the training config (auto-detected from checkpoint path if not specified)",
     )
     parser.add_argument(
         "--no-ema",
@@ -417,11 +431,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Auto-detect config if not provided
+    config_module = args.config if args.config else auto_detect_config(args.checkpoint)
+
     infer = DETRPoseInference(
         checkpoint_path=args.checkpoint,
         device=args.device,
         conf_thresh=args.conf,
-        config_module=args.config,
+        config_module=config_module,
         use_ema=not args.no_ema,
         image_size=args.image_size,
     )

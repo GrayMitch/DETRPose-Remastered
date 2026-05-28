@@ -393,12 +393,17 @@ class TransformerDecoder(nn.Module):
                 dec_out_pred_corners.append(pred_corners)
                 dec_out_refs.append(ref_pose_initial)
 
-                # Predict bbox: cx,cy refined from keypoint center; w,h from the head
+                # Predict bbox with DFL: distributions -> coordinates via integral
                 center_ref = refpoint_center_pose.squeeze(2)  # [bs, nq, 2]
-                delta_bbox = bbox_head[layer_id](output_instance)  # [bs, nq, 4]
+                bbox_dist = bbox_head[layer_id](output_instance)  # [bs, nq, 4*(reg_max+1)]
+                
+                # Apply integral to convert distributions to coordinates
+                bbox_coords = integral(bbox_dist, project)  # [bs, nq, 4]
+                
+                # Refine cx,cy from keypoint center, apply sigmoid to w,h
                 pred_box = torch.cat([
-                    F.sigmoid(delta_bbox[..., :2] + inverse_sigmoid(center_ref)),
-                    F.sigmoid(delta_bbox[..., 2:])
+                    F.sigmoid(bbox_coords[..., :2] + inverse_sigmoid(center_ref)),
+                    F.sigmoid(bbox_coords[..., 2:])
                 ], dim=-1)
                 dec_out_boxes.append(pred_box)
 
@@ -530,7 +535,8 @@ class Transformer(nn.Module):
         else:
             pose_embed_layerlist = [copy.deepcopy(_point_embed) for i in range(num_decoder_layers)]
 
-        _bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        # DFL-based bbox head: predicts distributions for 4 coordinates (like keypoints)
+        _bbox_embed = MLP(hidden_dim, hidden_dim, 4 * (reg_max + 1), 3)
         nn.init.constant_(_bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(_bbox_embed.layers[-1].bias.data, 0)
 

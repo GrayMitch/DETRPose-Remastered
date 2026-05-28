@@ -24,7 +24,7 @@ from torch import nn
 
 from ...misc.dist_utils import get_world_size, is_dist_avail_and_initialized
 from ...misc.keypoint_loss import OKSLoss
-from ...misc.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
+from src.misc.box_ops import box_cxcywh_to_xyxy, complete_box_iou_pairwise
 
 from .utils import sigmoid_focal_loss
 
@@ -230,8 +230,10 @@ class Criterion(nn.Module):
 
         src_boxes_xyxy = box_cxcywh_to_xyxy(src_boxes)
         tgt_boxes_xyxy = box_cxcywh_to_xyxy(target_boxes)
-        loss_giou = 1 - torch.diag(generalized_box_iou(src_boxes_xyxy, tgt_boxes_xyxy))
-        losses['loss_giou'] = loss_giou.sum() / num_boxes
+        
+        # Use CIoU instead of GIoU for better bbox regression
+        loss_ciou = 1 - complete_box_iou_pairwise(src_boxes_xyxy, tgt_boxes_xyxy)
+        losses['loss_giou'] = loss_ciou.sum() / num_boxes  # Keep name for backward compatibility
         return losses
 
     def loss_keypoints(self, outputs, targets, indices, num_boxes):
