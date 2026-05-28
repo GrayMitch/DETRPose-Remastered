@@ -24,6 +24,7 @@ from torch import nn
 
 from ...misc.dist_utils import get_world_size, is_dist_avail_and_initialized
 from ...misc.keypoint_loss import OKSLoss
+from ...misc.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 
 from .utils import sigmoid_focal_loss
 
@@ -213,6 +214,21 @@ class Criterion(nn.Module):
 
         return losses
 
+    def loss_boxes(self, outputs, targets, indices, num_boxes):
+        assert 'pred_boxes' in outputs
+        idx = self._get_src_permutation_idx(indices)
+        src_boxes = outputs['pred_boxes'][idx]  # normalized cxcywh
+        target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)  # normalized cxcywh
+
+        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+        losses = {'loss_bbox': loss_bbox.sum() / num_boxes}
+
+        src_boxes_xyxy = box_cxcywh_to_xyxy(src_boxes)
+        tgt_boxes_xyxy = box_cxcywh_to_xyxy(target_boxes)
+        loss_giou = 1 - torch.diag(generalized_box_iou(src_boxes_xyxy, tgt_boxes_xyxy))
+        losses['loss_giou'] = loss_giou.sum() / num_boxes
+        return losses
+
     def loss_keypoints(self, outputs, targets, indices, num_boxes):
         idx = self._get_src_permutation_idx(indices)
         src_keypoints = outputs['pred_keypoints'][idx] # xyxyvv
@@ -282,6 +298,7 @@ class Criterion(nn.Module):
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         loss_map = {
             'labels': self.loss_labels,
+            "boxes": self.loss_boxes,
             "keypoints":self.loss_keypoints,
             "matching": self.loss_matching_cost,
             "vfl": self.loss_vfl,

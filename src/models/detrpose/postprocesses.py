@@ -16,6 +16,8 @@ import torch
 from torch import nn
 from torchvision.ops.boxes import nms
 
+from ...misc.box_ops import box_cxcywh_to_xyxy
+
 
 class PostProcess(nn.Module):
     """ This module converts the model's output into the format expected by the coco api"""
@@ -29,19 +31,24 @@ class PostProcess(nn.Module):
     def forward(self, outputs, target_sizes):
         num_select = self.num_select
         out_logits, out_keypoints= outputs['pred_logits'], outputs['pred_keypoints']
+        out_boxes = outputs['pred_boxes']  # [bs, nq, 4] normalized cxcywh
 
         prob = out_logits.sigmoid()
         topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), num_select, dim=1)
         scores = topk_values
 
-        # keypoints
+        # query indices for gathering
         topk_keypoints = (topk_indexes.float() // out_logits.shape[2]).long()
         labels = topk_indexes % out_logits.shape[2]
         
         if self.deploy_mode:
             keypoints = torch.gather(out_keypoints, 1, topk_keypoints[..., None, None].expand(1, num_select, self.num_body_points, 2))
             keypoints = keypoints * target_sizes[:, None, None, :]
-            return scores, labels, keypoints
+            boxes = torch.gather(out_boxes, 1, topk_keypoints.unsqueeze(-1).expand(1, num_select, 4))
+            img_h, img_w = target_sizes.unbind(1)
+            scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)[:, None, :]
+            boxes = box_cxcywh_to_xyxy(boxes) * scale_fct
+            return scores, labels, keypoints, boxes
 
         keypoints = torch.gather(out_keypoints, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, self.num_body_points*2))
         keypoints = keypoints * target_sizes.repeat(1, self.num_body_points)[:, None, :]
@@ -50,7 +57,13 @@ class PostProcess(nn.Module):
             [keypoints_res, torch.ones_like(keypoints_res[..., 0:1])], 
             dim=-1).flatten(-2)
 
-        results = [{'scores': s, 'labels': l, 'keypoints': k} for s, l, k in zip(scores, labels, keypoints_res)]
+        # gather and scale bounding boxes
+        boxes = torch.gather(out_boxes, 1, topk_keypoints.unsqueeze(-1).repeat(1, 1, 4))
+        img_h, img_w = target_sizes.unbind(1)
+        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)[:, None, :]
+        boxes = box_cxcywh_to_xyxy(boxes) * scale_fct
+
+        results = [{'scores': s, 'labels': l, 'keypoints': k, 'boxes': b} for s, l, k, b in zip(scores, labels, keypoints_res, boxes)]
         return results
 
     def deploy(self, ):
