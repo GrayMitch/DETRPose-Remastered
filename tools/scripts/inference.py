@@ -196,12 +196,12 @@ class DETRPoseInference:
 
         # Draw keypoints first.
         for x, y in points:
-            cv2.circle(img, (x, y), 5, color, -1)
-            cv2.circle(img, (x, y), 7, (0, 0, 0), 1)
+            cv2.circle(img, (x, y), 3, color, -1)
+            cv2.circle(img, (x, y), 4, (0, 0, 0), 1)
 
         # Draw simple chain skeleton.
         for i in range(len(points) - 1):
-            cv2.line(img, points[i], points[i + 1], color, 2)
+            cv2.line(img, points[i], points[i + 1], color, 1)
 
         return points
 
@@ -213,8 +213,8 @@ class DETRPoseInference:
         y = max(20, min(int(y), h - 1))
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.65
-        thickness = 2
+        font_scale = 0.45
+        thickness = 1
 
         text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
         text_w, text_h = text_size
@@ -351,7 +351,7 @@ class DETRPoseInference:
                 x2 = max(0, min(x2, w - 1))
                 y2 = max(0, min(y2, h - 1))
 
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
                 label_anchor = (x1, y1)
                 self.draw_label(vis, text, label_anchor, color)
 
