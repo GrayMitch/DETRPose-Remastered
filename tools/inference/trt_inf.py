@@ -1,295 +1,291 @@
 """
-Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
-"""
+DETRPose TensorRT inference script.
+Matches the output style of tools/scripts/inference.py (PyTorch).
 
+Usage:
+    python tools/inference/trt_inf.py `
+        --trt trt_engines/detrpose_hgnetv2_s_custom.engine `
+        -i path/to/image_or_folder `
+        -o predictions `
+        --conf 0.35
+"""
 import os
-import time
-import glob
+import sys
+import argparse
 import collections
 import contextlib
+import time
 from collections import OrderedDict
+from pathlib import Path
 
-import cv2  # Added for video processing
+import cv2
 import numpy as np
-import tensorrt as trt
 import torch
-import torchvision.transforms as T
 
-from PIL import Image, ImageDraw
-from copy import deepcopy
-from annotators import COCOVisualizer, CrowdPoseVisualizer
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from class_mapping_utils import find_class_mappings_json, print_detections
 
-annotators = {'COCO': COCOVisualizer, 'CrowdPose': CrowdPoseVisualizer}
+
+# ---------------------------------------------------------------------------
+# Drawing helpers (mirrors tools/scripts/inference.py exactly)
+# ---------------------------------------------------------------------------
+
+def get_object_color(index):
+    colors = [
+        (0, 255, 0),      # green
+        (255, 0, 0),      # blue
+        (0, 0, 255),      # red
+        (0, 255, 255),    # yellow
+        (255, 0, 255),    # magenta
+        (255, 255, 0),    # cyan
+        (0, 165, 255),    # orange
+        (128, 0, 255),    # purple
+        (255, 128, 0),    # light blue
+        (128, 255, 0),    # lime
+        (180, 105, 255),  # pink-ish
+        (42, 42, 165),    # brown-ish
+    ]
+    return colors[index % len(colors)]
 
 
-class TimeProfiler(contextlib.ContextDecorator):
-    def __init__(self):
-        self.total = 0
+def normalize_keypoints(kps, image_w, image_h):
+    kps = np.asarray(kps)
+    if kps.ndim == 1:
+        kps = kps.reshape(-1, 2) if len(kps) % 2 == 0 else kps.reshape(-1, 3)[:, :2]
+    elif kps.ndim == 2:
+        kps = kps[:, :2]
+    else:
+        return []
+    points = []
+    for kp in kps:
+        x, y = float(kp[0]), float(kp[1])
+        if x <= 1.5 and y <= 1.5:
+            x *= image_w
+            y *= image_h
+        x, y = int(round(x)), int(round(y))
+        if 0 <= x < image_w and 0 <= y < image_h:
+            points.append((x, y))
+    return points
 
-    def __enter__(self):
-        self.start = self.time()
-        return self
 
-    def __exit__(self, type, value, traceback):
-        self.total += self.time() - self.start
+def draw_skeleton(img, kps, color, skeleton=None):
+    h, w = img.shape[:2]
+    points = normalize_keypoints(kps, w, h)
+    for x, y in points:
+        cv2.circle(img, (x, y), 3, color, -1)
+        cv2.circle(img, (x, y), 4, (0, 0, 0), 1)
+    if skeleton:
+        for a, b in skeleton:
+            if a < len(points) and b < len(points):
+                cv2.line(img, points[a], points[b], color, 1)
+    else:
+        for i in range(len(points) - 1):
+            cv2.line(img, points[i], points[i + 1], color, 1)
+    return points
 
-    def reset(self):
-        self.total = 0
 
-    def time(self):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        return time.time()
+def draw_label(img, text, anchor_point, color):
+    x, y = anchor_point
+    h, w = img.shape[:2]
+    x = max(0, min(int(x), w - 1))
+    y = max(20, min(int(y), h - 1))
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.45
+    thickness = 1
+    text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    text_w, text_h = text_size
+    box_x1, box_y1 = x, y - text_h - baseline - 8
+    box_x2, box_y2 = x + text_w + 10, y + baseline
+    if box_x2 >= w:
+        shift = box_x2 - w + 2
+        box_x1 -= shift; box_x2 -= shift
+    if box_y1 < 0:
+        box_y1 = y; box_y2 = y + text_h + baseline + 8
+        text_y = box_y1 + text_h + 4
+    else:
+        text_y = box_y2 - baseline - 4
+    box_x1 = max(0, box_x1); box_y1 = max(0, box_y1)
+    box_x2 = min(w - 1, box_x2); box_y2 = min(h - 1, box_y2)
+    cv2.rectangle(img, (box_x1, box_y1), (box_x2, box_y2), color, -1)
+    cv2.putText(img, text, (box_x1 + 5, text_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
 
-class TRTInference(object):
-    def __init__(
-        self, engine_path, device="cuda:0", backend="torch", max_batch_size=32, verbose=False
-    ):
-        self.engine_path = engine_path
+# ---------------------------------------------------------------------------
+# TensorRT engine wrapper
+# ---------------------------------------------------------------------------
+
+class TRTInference:
+    def __init__(self, engine_path, device="cuda:0", max_batch_size=1):
+        try:
+            import tensorrt as trt
+        except ImportError:
+            raise ImportError("TensorRT not installed. Run: pip install tensorrt")
+
         self.device = device
-        self.backend = backend
-        self.max_batch_size = max_batch_size
-
-        self.logger = trt.Logger(trt.Logger.VERBOSE) if verbose else trt.Logger(trt.Logger.INFO)
-
-        self.engine = self.load_engine(engine_path)
-        self.context = self.engine.create_execution_context()
-        self.bindings = self.get_bindings(
-            self.engine, self.context, self.max_batch_size, self.device
-        )
-        self.bindings_addr = OrderedDict((n, v.ptr) for n, v in self.bindings.items())
-        self.input_names = self.get_input_names()
-        self.output_names = self.get_output_names()
-        self.time_profile = TimeProfiler()
-
-    def load_engine(self, path):
+        self.trt = trt
+        self.logger = trt.Logger(trt.Logger.WARNING)
         trt.init_libnvinfer_plugins(self.logger, "")
-        with open(path, "rb") as f, trt.Runtime(self.logger) as runtime:
-            return runtime.deserialize_cuda_engine(f.read())
 
-    def get_input_names(self):
-        names = []
-        for _, name in enumerate(self.engine):
-            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
-                names.append(name)
-        return names
+        with open(engine_path, "rb") as f, trt.Runtime(self.logger) as runtime:
+            self.engine = runtime.deserialize_cuda_engine(f.read())
 
-    def get_output_names(self):
-        names = []
-        for _, name in enumerate(self.engine):
-            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.OUTPUT:
-                names.append(name)
-        return names
+        self.context = self.engine.create_execution_context()
+        self.bindings = self._get_bindings(max_batch_size)
+        self.bindings_addr = OrderedDict((n, v.ptr) for n, v in self.bindings.items())
+        self.input_names  = [n for n in self.engine if self.engine.get_tensor_mode(n) == trt.TensorIOMode.INPUT]
+        self.output_names = [n for n in self.engine if self.engine.get_tensor_mode(n) == trt.TensorIOMode.OUTPUT]
 
-    def get_bindings(self, engine, context, max_batch_size=32, device=None) -> OrderedDict:
+    def _get_bindings(self, max_batch_size):
+        trt = self.trt
         Binding = collections.namedtuple("Binding", ("name", "dtype", "shape", "data", "ptr"))
         bindings = OrderedDict()
-
-        for i, name in enumerate(engine):
-            shape = engine.get_tensor_shape(name)
-            dtype = trt.nptype(engine.get_tensor_dtype(name))
-
+        for name in self.engine:
+            shape = list(self.engine.get_tensor_shape(name))
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
             if shape[0] == -1:
                 shape[0] = max_batch_size
-                if engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
-                    context.set_input_shape(name, shape)
-
-            data = torch.from_numpy(np.empty(shape, dtype=dtype)).to(device)
+                if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                    self.context.set_input_shape(name, shape)
+            data = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
             bindings[name] = Binding(name, dtype, shape, data, data.data_ptr())
-
         return bindings
 
-    def run_torch(self, blob):
+    def __call__(self, blob):
         for n in self.input_names:
-            if blob[n].dtype is not self.bindings[n].data.dtype:
-                blob[n] = blob[n].to(dtype=self.bindings[n].data.dtype)
-            if self.bindings[n].shape != blob[n].shape:
+            blob[n] = blob[n].to(dtype=self.bindings[n].data.dtype)
+            if list(self.bindings[n].shape) != list(blob[n].shape):
                 self.context.set_input_shape(n, blob[n].shape)
-                self.bindings[n] = self.bindings[n]._replace(shape=blob[n].shape)
-
-            assert self.bindings[n].data.dtype == blob[n].dtype, "{} dtype mismatch".format(n)
-
+                self.bindings[n] = self.bindings[n]._replace(shape=list(blob[n].shape))
         self.bindings_addr.update({n: blob[n].data_ptr() for n in self.input_names})
         self.context.execute_v2(list(self.bindings_addr.values()))
-        outputs = {n: self.bindings[n].data for n in self.output_names}
-
-        return outputs
-
-    def __call__(self, blob):
-        if self.backend == "torch":
-            return self.run_torch(blob)
-        else:
-            raise NotImplementedError("Only 'torch' backend is implemented.")
-
-    def synchronize(self):
-        if self.backend == "torch" and torch.cuda.is_available():
+        if torch.cuda.is_available():
             torch.cuda.synchronize()
+        return {n: self.bindings[n].data for n in self.output_names}
 
-def process_image(m, file_path, device):
-    im_pil = Image.open(file_path).convert("RGB")
-    w, h = im_pil.size
-    orig_size = torch.tensor([w, h])[None].to(device)
 
-    transforms = T.Compose(
-        [
-            T.Resize((640, 640)),
-            T.ToTensor(),
-        ]
-    )
-    im_data = transforms(im_pil)[None]
-    annotator = annotators[annotator_type]()
+# ---------------------------------------------------------------------------
+# Inference class
+# ---------------------------------------------------------------------------
 
-    blob = {
-        "images": im_data.to(device),
-        "orig_target_sizes": orig_size.to(device),
-    }
+class TRTInferenceRunner:
+    def __init__(self, engine_path, conf_thresh=0.35, image_size=640, device="cuda:0"):
+        self.conf_thresh = conf_thresh
+        self.image_size = image_size
+        self.device = device if torch.cuda.is_available() else "cpu"
 
-    output = m(blob)
-    
-    scores, labels, keypoints = output.values()
-    scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+        print(f"Loading TRT engine: {engine_path}")
+        self.model = TRTInference(engine_path, device=self.device)
+        print(f"Output tensors: {self.model.output_names}")
+        self.has_boxes = 'boxes' in self.model.output_names
 
-    # Filter by score
-    idx = scores > thrh
-    valid_keypoints = keypoints[idx]
-    valid_labels = labels[idx]
-    valid_scores = scores[idx]
-    
-    # Print predictions with class names
-    if len(valid_labels) > 0:
-        print(f"\nDetections in {os.path.basename(file_path)}:")
-        print_detections(valid_labels.cpu().numpy(), valid_scores.cpu().numpy(), class_mappings, max_display=10)
-    
-    im_cv2 = cv2.cvtColor(np.array(im_pil), cv2.COLOR_RGB2BGR)
-    annotator.draw_on(im_cv2, valid_keypoints.cpu().numpy())
-    cv2.imwrite(f"{OUTPUT_NAME}.jpg", im_cv2)
+        self.class_mappings, self.skeleton_connections = find_class_mappings_json(engine_path)
+        if not self.class_mappings:
+            print("Warning: No class mappings found. Using numeric IDs.")
+        if not self.skeleton_connections:
+            print("Warning: No skeleton connections found. Using linear chain fallback.")
 
-def process_video(m, file_path, device):
-    cap = cv2.VideoCapture(file_path)
+    def preprocess(self, img_bgr):
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+        tensor = torch.from_numpy(img_resized).float().permute(2, 0, 1) / 255.0
+        return tensor.unsqueeze(0).to(self.device)
 
-    # Get video properties
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    def infer_image(self, image_path, output_dir):
+        img = cv2.imread(str(image_path))
+        if img is None:
+            print(f"Could not read image: {image_path}")
+            return
 
-    # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(f"{OUTPUT_NAME}.mp4", fourcc, fps, (orig_w, orig_h))
+        h, w = img.shape[:2]
+        im_data = self.preprocess(img)
+        orig_size = torch.tensor([[w, h]], dtype=torch.float32, device=self.device)
 
-    transforms = T.Compose(
-        [
-            T.Resize((640, 640)),
-            T.ToTensor(),
-        ]
-    )
+        outputs = self.model({"images": im_data, "orig_target_sizes": orig_size})
 
-    frame_count = 0
-    annotator = annotators[annotator_type]
+        scores    = outputs['scores'][0].cpu().numpy()      # (N,)
+        labels    = outputs['labels'][0].cpu().numpy()      # (N,)
+        keypoints = outputs['keypoints'][0].cpu().numpy()   # (N, K, 2)
+        boxes     = outputs['boxes'][0].cpu().numpy() if self.has_boxes else None  # (N, 4)
 
-    print("Processing video frames...")
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+        keep = scores > self.conf_thresh
+        scores    = scores[keep]
+        labels    = labels[keep]
+        keypoints = keypoints[keep]
+        if boxes is not None:
+            boxes = boxes[keep]
 
-        # Convert frame to PIL image
-        frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if len(scores) > 0:
+            print(f"\nDetections in {image_path.name}:")
+            print_detections(labels.astype(int), scores, self.class_mappings, max_display=10)
 
-        w, h = frame_pil.size
-        orig_size = torch.tensor([w, h], device=device)[None]
-        annotator = annotators[annotator_type](deepcopy(frame_pil))
+        vis = img.copy()
+        for i, (score, label, kps) in enumerate(zip(scores, labels, keypoints)):
+            color = get_object_color(i)
+            class_name = self.class_mappings.get(int(label), f"class_{int(label)}")
+            text = f"{class_name} {score:.3f}"
 
-        im_data = transforms(frame_pil)[None]
+            skeleton = self.skeleton_connections.get(int(label), [])
+            points = draw_skeleton(vis, kps, color, skeleton)
 
-        blob = {
-            "images": im_data.to(device),
-            "orig_target_sizes": orig_size,
-        }
+            if boxes is not None:
+                x1, y1, x2, y2 = boxes[i][:4]
+                if x2 <= 1.5 and y2 <= 1.5:
+                    x1 *= w; x2 *= w; y1 *= h; y2 *= h
+                x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                x1 = max(0, min(x1, w - 1)); y1 = max(0, min(y1, h - 1))
+                x2 = max(0, min(x2, w - 1)); y2 = max(0, min(y2, h - 1))
+                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
+                draw_label(vis, text, (x1, y1), color)
+            elif points:
+                xs = [p[0] for p in points]; ys = [p[1] for p in points]
+                draw_label(vis, text, (max(0, min(xs)), max(20, min(ys) - 10)), color)
 
-        output = m(blob)
-        valid_labels = labels[idx]
-        valid_scores = scores[idx]
-        
-        # Print detections for first frame
-        if frame_count == 0 and len(valid_labels) > 0:
-            print(f"\nDetections in frame 0:")
-            print_detections(valid_labels.cpu().numpy(), valid_scores.cpu().numpy(), class_mappings, max_display=5)
-        
-        im_cv2 = frame
-        annotator.draw_on(im_cv2, valid_keypoints.cpu().numpy()bels[0], keypoints[0]
-        
-        # Filter by score
-        idx = scores > thrh
-        valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
-        
-        im_cv2 = frame
-        annotator.draw_on(im_cv2, valid_keypoints)
-        cv2.imwrite(f"{OUTPUT_NAME}.jpg", im_cv2)
-        
-        frame_count += 1
+        output_path = output_dir / f"pred_{image_path.name}"
+        cv2.imwrite(str(output_path), vis)
+        print(f"-> {image_path.name}: {len(scores)} detections")
 
-        if frame_count % 100 == 0:
-            print(f"Processed {frame_count} frames...")
+    def infer_path(self, input_path, output_dir):
+        input_path = Path(input_path)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    cap.release()
-    out.release()
-    print(f"Video processing complete. Result saved as '{OUTPUT_NAME}.mp4'.")
+        if input_path.is_file():
+            self.infer_image(input_path, output_dir)
+            return
 
-def process_file(m, file_path, device):
-    # Check if the input file is an image or a vide
-    if os.path.splitext(file_path)[-1].lower() in [".jpg", ".jpeg", ".png", ".bmp"]:
-        # Process as image
-        process_image(m, file_path, device)
-    else:
-        # Process as video
-        process_video(m, file_path, device)
+        image_paths = []
+        for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]:
+            image_paths.extend(input_path.glob(ext))
+        image_paths = sorted(image_paths)
 
-if __name__ == "__main__":
-    import argparse
+        if not image_paths:
+            print(f"No images found in: {input_path}")
+            return
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-trt", "--trt", type=str, required=True)
-    parser.add_argument("--annotator", type=str, required=True, help="Annotator type: COCO or CrowdPose.")
-    parser.add_argument("-i", "--input", type=str, required=True)
-    parser.add_argumes
-    global OUTPUT_NAME, thrh, annotator_type, class_mappings
-    thrh = 0.5 if args.thrh is None else args.thrh
-    
-    # Try to load class mappings from JSON file
-    class_mappings = find_class_mappings_json(args.trt)
+        print(f"Found {len(image_paths)} images")
+        for img_path in image_paths:
+            self.infer_image(img_path, output_dir)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="DETRPose TensorRT inference")
+    parser.add_argument("--trt", type=str, required=True, help="Path to the TensorRT .engine file.")
+    parser.add_argument("-i", "--input", type=str, required=True, help="Path to input image or folder.")
+    parser.add_argument("-o", "--output", type=str, default="predictions", help="Output directory (default: predictions).")
+    parser.add_argument("--conf", type=float, default=0.35, help="Confidence threshold (default: 0.35).")
+    parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on (default: cuda:0).")
+    parser.add_argument("--image-size", type=int, default=640, help="Input image size (default: 640).")
     args = parser.parse_args()
 
-    assert args.annotator.lower() in ['coco', 'crowdpose']
+    infer = TRTInferenceRunner(
+        engine_path=args.trt,
+        conf_thresh=args.conf,
+        image_size=args.image_size,
+        device=args.device,
+    )
+    infer.infer_path(args.input, args.output)
+    print(f"\nDone. Results saved to: {args.output}")
 
-    # Global variable
-    global OUTPUT_NAME, thrh, annotator_type
-    thrh = 0.5 if args.thrh is None else args.thrh
 
-    annotator_name = args.annotator.lower()
-    if annotator_name == 'coco':
-        annotator_type = 'COCO'
-    elif annotator_name == 'crowdpose':
-        annotator_type = 'CrowdPose'
-    
-    m = TRTInference(args.trt, device=args.device)
-
-    # Check if the input argumnet is a file or a folder
-    file_path = args.input
-    if os.path.isdir(file_path):
-        # Process a folder
-        folder_dir = args.input
-        if folder_dir[-1] == '/':
-            folder_dir = folder_dir[:-1]
-        output_dir = f"{folder_dir}/output"
-        os.makedirs(output_dir, exist_ok=True)
-        paths = list(glob.iglob(f"{folder_dir}/*.*"))
-        for file_path in paths:
-            OUTPUT_NAME = file_path.replace(f'{folder_dir}/', f'{output_dir}/').split('.')[0]
-            OUTPUT_NAME = f"{OUTPUT_NAME}_{annotator_type}"
-            process_file(m, file_path, args.device)
-    else:
-        # Process a file
-        OUTPUT_NAME = f'trt_results_{annotator_type}'
-        process_file(m, file_path, args.device)
+if __name__ == "__main__":
+    main()

@@ -1,182 +1,238 @@
 """
-Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
+DETRPose ONNX inference script.
+Matches the output style of tools/scripts/inference.py (PyTorch).
+
+Usage:
+    python tools/inference/onnx_inf.py `
+        --onnx onnx_engines/detrpose_hgnetv2_s_custom.onnx `
+        -i path/to/image_or_folder `
+        -o predictions `
+        --conf 0.35
 """
 import os
+import sys
+import argparse
+from pathlib import Path
+
 import cv2
-import glob
 import numpy as np
 import onnxruntime as ort
-import torch
-import torchvision.transforms as T
 
-from PIL import Image, ImageDraw
-from copy import deepcopy
-from annotators import COCOVisualizer, CrowdPoseVisualizer
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from class_mapping_utils import find_class_mappings_json, print_detections
 
-annotators = {'COCO': COCOVisualizer, 'CrowdPose': CrowdPoseVisualizer}
 
-def process_image(sess, im_pil, file_name="image"):
-    w, h = im_pil.size
-    orig_size = torch.tensor([w, h])[None]
+# ---------------------------------------------------------------------------
+# Drawing helpers (mirrors tools/scripts/inference.py exactly)
+# ---------------------------------------------------------------------------
 
-    transforms = T.Compose(
-        [
-            T.Resize((640, 640)),
-            T.ToTensor(),
-        ]
-    )
-    im_data = transforms(im_pil).unsqueeze(0)
-    annotator = annotators[annotator_type]()
+def get_object_color(index):
+    colors = [
+        (0, 255, 0),      # green
+        (255, 0, 0),      # blue
+        (0, 0, 255),      # red
+        (0, 255, 255),    # yellow
+        (255, 0, 255),    # magenta
+        (255, 255, 0),    # cyan
+        (0, 165, 255),    # orange
+        (128, 0, 255),    # purple
+        (255, 128, 0),    # light blue
+        (128, 255, 0),    # lime
+        (180, 105, 255),  # pink-ish
+        (42, 42, 165),    # brown-ish
+    ]
+    return colors[index % len(colors)]
 
 
-    output = sess.run(
-        output_names=None,
-        input_feed={"images": im_data.numpy(), "orig_target_sizes": orig_size.numpy()},
-    )
+def normalize_keypoints(kps, image_w, image_h):
+    kps = np.asarray(kps)
+    if kps.ndim == 1:
+        kps = kps.reshape(-1, 2) if len(kps) % 2 == 0 else kps.reshape(-1, 3)[:, :2]
+    elif kps.ndim == 2:
+        kps = kps[:, :2]
+    else:
+        return []
+    points = []
+    for kp in kps:
+        x, y = float(kp[0]), float(kp[1])
+        if x <= 1.5 and y <= 1.5:
+            x *= image_w
+            y *= image_h
+        x, y = int(round(x)), int(round(y))
+        if 0 <= x < image_w and 0 <= y < image_h:
+            points.append((x, y))
+    return points
 
-    scores, labels, keypoints = output
-    scores, labels, keypoints = scores[0], labels[0], keypoints[0]
 
-    # Filter by score
-    idx = scores > thrh
-    valid_keypoints = keypoints[idx]
-    valid_labels = labels[idx]
-    valid_scores = scores[idx]
-    
-    # Print predictions with class names
-    if len(valid_labels) > 0:
-        print(f"\nDetections in {file_name}:")
-        print_detections(valid_labels, valid_scores, class_mappings, max_display=10)
-    
-    im_cv2 = cv2.cvtColor(np.array(im_pil), cv2.COLOR_RGB2BGR)
-    annotator.draw_on(im_cv2, valid_keypoints)
-    cv2.imwrite(f"{OUTPUT_NAME}.jpg", im_cv2)
+def draw_skeleton(img, kps, color, skeleton=None):
+    h, w = img.shape[:2]
+    points = normalize_keypoints(kps, w, h)
+    for x, y in points:
+        cv2.circle(img, (x, y), 3, color, -1)
+        cv2.circle(img, (x, y), 4, (0, 0, 0), 1)
+    if skeleton:
+        for a, b in skeleton:
+            if a < len(points) and b < len(points):
+                cv2.line(img, points[a], points[b], color, 1)
+    else:
+        for i in range(len(points) - 1):
+            cv2.line(img, points[i], points[i + 1], color, 1)
+    return points
 
-def process_video(sess, video_path):
-    cap = cv2.VideoCapture(video_path)
 
-    # Get video properties
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+def draw_label(img, text, anchor_point, color):
+    x, y = anchor_point
+    h, w = img.shape[:2]
+    x = max(0, min(int(x), w - 1))
+    y = max(20, min(int(y), h - 1))
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.45
+    thickness = 1
+    text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    text_w, text_h = text_size
+    box_x1, box_y1 = x, y - text_h - baseline - 8
+    box_x2, box_y2 = x + text_w + 10, y + baseline
+    if box_x2 >= w:
+        shift = box_x2 - w + 2
+        box_x1 -= shift; box_x2 -= shift
+    if box_y1 < 0:
+        box_y1 = y; box_y2 = y + text_h + baseline + 8
+        text_y = box_y1 + text_h + 4
+    else:
+        text_y = box_y2 - baseline - 4
+    box_x1 = max(0, box_x1); box_y1 = max(0, box_y1)
+    box_x2 = min(w - 1, box_x2); box_y2 = min(h - 1, box_y2)
+    cv2.rectangle(img, (box_x1, box_y1), (box_x2, box_y2), color, -1)
+    cv2.putText(img, text, (box_x1 + 5, text_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
-    # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(f"{OUTPUT_NAME}.mp4", fourcc, fps, (orig_w, orig_h))
 
-    transforms = T.Compose(
-        [
-            T.Resize((640, 640)),
-            T.ToTensor(),
-        ]
-    )
-        
-    frame_count = 0
-    annotator = annotators[annotator_type]
+# ---------------------------------------------------------------------------
+# Inference class
+# ---------------------------------------------------------------------------
 
-    print("Processing video frames...")
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+class ONNXInference:
+    def __init__(self, onnx_path, conf_thresh=0.35, image_size=640):
+        self.conf_thresh = conf_thresh
+        self.image_size = image_size
 
-        # Convert frame to PIL image
-        frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        self.sess = ort.InferenceSession(onnx_path, providers=providers)
+        print(f"ONNX Runtime device: {ort.get_device()}")
+        print(f"Using providers: {self.sess.get_providers()}")
 
-        w, h = frame_pil.size
-        orig_size = torch.tensor([w, h])[None]
+        self.class_mappings, self.skeleton_connections = find_class_mappings_json(onnx_path)
+        if not self.class_mappings:
+            print("Warning: No class mappings found. Using numeric IDs.")
+        if not self.skeleton_connections:
+            print("Warning: No skeleton connections found. Using linear chain fallback.")
 
-        im_data = transforms(frame_pil).unsqueeze(0)
+        output_names = [o.name for o in self.sess.get_outputs()]
+        self.has_boxes = 'boxes' in output_names
+        print(f"Model outputs: {output_names}")
 
-        output = sess.run(
+    def preprocess(self, img_bgr):
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
+        tensor = img_resized.astype(np.float32) / 255.0
+        return tensor.transpose(2, 0, 1)[np.newaxis]  # 1CHW
+
+    def infer_image(self, image_path, output_dir):
+        img = cv2.imread(str(image_path))
+        if img is None:
+            print(f"Could not read image: {image_path}")
+            return
+
+        h, w = img.shape[:2]
+        im_data = self.preprocess(img)
+        orig_size = np.array([[w, h]], dtype=np.float32)
+
+        outputs = self.sess.run(
             output_names=None,
-            input_feed={"images": im_data.numpy(), "orig_target_sizes": orig_size.numpy()},
+            input_feed={"images": im_data, "orig_target_sizes": orig_size},
         )
 
-        scores, labels, keypoints = output
-        scores, labels, keypoints = scores[0], labels[0], keypoints[0]
-        
-        # Filter by score
-        idx = scores > thrh
-        valid_keypoints = keypoints[idx]
-        valid_labels = labels[idx]
-        valid_scores = scores[idx]
-        
-        # Print detections for first frame
-        if frame_count == 0 and len(valid_labels) > 0:
-            print(f"\nDetections in frame 0:")
-            print_detections(valid_labels, valid_scores, class_mappings, max_display=5)
-        
-        im_cv2 = frame
-        annotator.draw_on(im_cv2, valid_keypoints)
-        cv2.imwrite(f"{OUTPUT_NAME}.jpg", im_cv2)
+        scores    = outputs[0][0]           # (N,)
+        labels    = outputs[1][0]           # (N,)
+        keypoints = outputs[2][0]           # (N, K, 2)
+        boxes     = outputs[3][0] if self.has_boxes and len(outputs) > 3 else None  # (N, 4)
 
-        frame_count += 1
+        keep = scores > self.conf_thresh
+        scores    = scores[keep]
+        labels    = labels[keep]
+        keypoints = keypoints[keep]
+        if boxes is not None:
+            boxes = boxes[keep]
 
-        if frame_count % 10 == 0:
-            print(f"Processed {frame_count} frames...")
+        if len(scores) > 0:
+            print(f"\nDetections in {image_path.name}:")
+            print_detections(labels.astype(int), scores, self.class_mappings, max_display=10)
 
-    cap.release()
-    out.release()
-    print(f"Video processing compl, os.path.basename(file_path))
-    except IOError:
-        # Not an image, process as video
-        process_video(sess, file_path)
+        vis = img.copy()
+        for i, (score, label, kps) in enumerate(zip(scores, labels, keypoints)):
+            color = get_object_color(i)
+            class_name = self.class_mappings.get(int(label), f"class_{int(label)}")
+            text = f"{class_name} {score:.3f}"
 
-def main(args):
-    assert args.annotator.lower() in ['coco', 'crowdpose']
-    # Global variables
-    global OUTPUT_NAME, thrh, annotator_type, class_mappings
+            skeleton = self.skeleton_connections.get(int(label), [])
+            points = draw_skeleton(vis, kps, color, skeleton)
 
-    """Main function."""
-    # Load the ONNX model
-    sess = ort.InferenceSession(args.onnx)
-    print(f"Using device: {ort.get_device()}")
-    
-    # Try to load class mappings from JSON file
-    class_mappings = find_class_mappings_json(args.onnx 'crowdpose']
-    # Global variable
-    global OUTPUT_NAME, thrh, annotator_type
+            if boxes is not None:
+                x1, y1, x2, y2 = boxes[i][:4]
+                if x2 <= 1.5 and y2 <= 1.5:
+                    x1 *= w; x2 *= w; y1 *= h; y2 *= h
+                x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                x1 = max(0, min(x1, w - 1)); y1 = max(0, min(y1, h - 1))
+                x2 = max(0, min(x2, w - 1)); y2 = max(0, min(y2, h - 1))
+                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1)
+                draw_label(vis, text, (x1, y1), color)
+            elif points:
+                xs = [p[0] for p in points]; ys = [p[1] for p in points]
+                draw_label(vis, text, (max(0, min(xs)), max(20, min(ys) - 10)), color)
 
-    """Main function."""
-    # Load the ONNX model
-    sess = ort.InferenceSession(args.onnx)
-    print(f"Using device: {ort.get_device()}")
+        output_path = output_dir / f"pred_{image_path.name}"
+        cv2.imwrite(str(output_path), vis)
+        print(f"-> {image_path.name}: {len(scores)} detections")
 
-    input_path = args.input
-    thrh = 0.5 if args.thrh is None else args.thrh
+    def infer_path(self, input_path, output_dir):
+        input_path = Path(input_path)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    annotator_name = args.annotator.lower()
-    if annotator_name == 'coco':
-        annotator_type = 'COCO'
-    elif annotator_name == 'crowdpose':
-        annotator_type = 'CrowdPose'
+        if input_path.is_file():
+            self.infer_image(input_path, output_dir)
+            return
 
-    # Check if the input argumnet is a file or a folder
-    file_path = args.input
-    if os.path.isdir(file_path):
-        # Process a folder
-        folder_dir = args.input
-        output_dir = f"{folder_dir}/output"
-        os.makedirs(output_dir, exist_ok=True)
-        paths = list(glob.iglob(f"{folder_dir}/*.*"))
-        for file_path in paths:
-            OUTPUT_NAME = file_path.replace(f'{folder_dir}/', f'{output_dir}/').split('.')[0]
-            OUTPUT_NAME = f"{OUTPUT_NAME}_{annotator_type}"
-            process_file(sess, file_path)
-    else:
-        # Process a file
-        OUTPUT_NAME = f'onxx_results_{annotator_type}'
-        process_file(sess, file_path)
+        image_paths = []
+        for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]:
+            image_paths.extend(input_path.glob(ext))
+        image_paths = sorted(image_paths)
+
+        if not image_paths:
+            print(f"No images found in: {input_path}")
+            return
+
+        print(f"Found {len(image_paths)} images")
+        for img_path in image_paths:
+            self.infer_image(img_path, output_dir)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="DETRPose ONNX inference")
+    parser.add_argument("--onnx", type=str, required=True, help="Path to the ONNX model file.")
+    parser.add_argument("-i", "--input", type=str, required=True, help="Path to input image or folder.")
+    parser.add_argument("-o", "--output", type=str, default="predictions", help="Output directory (default: predictions).")
+    parser.add_argument("--conf", type=float, default=0.35, help="Confidence threshold (default: 0.35).")
+    parser.add_argument("--image-size", type=int, default=640, help="Input image size (default: 640).")
+    args = parser.parse_args()
+
+    infer = ONNXInference(
+        onnx_path=args.onnx,
+        conf_thresh=args.conf,
+        image_size=args.image_size,
+    )
+    infer.infer_path(args.input, args.output)
+    print(f"\nDone. Results saved to: {args.output}")
+
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--onnx", type=str, required=True, help="Path to the ONNX model file.")
-    parser.add_argument("--annotator", type=str, required=True, help="Annotator type: COCO or CrowdPose.")
-    parser.add_argument("-i", "--input", type=str, required=True, help="Path to the input image or video file.")
-    parser.add_argument("-t", "--thrh", type=float, required=False, default=None)
-    args = parser.parse_args()
-    main(args)
+    main()

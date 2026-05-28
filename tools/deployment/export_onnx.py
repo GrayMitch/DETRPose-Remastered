@@ -88,7 +88,7 @@ def main(args, ):
         (data, size),
         output_file,
         input_names=['images', 'orig_target_sizes'],
-        output_names=['scores', 'labels', 'keypoints'],
+        output_names=['scores', 'labels', 'keypoints', 'boxes'],
         dynamic_axes=dynamic_axes,
         opset_version=16,
         # dynamo=True,
@@ -101,10 +101,15 @@ def main(args, ):
     
     print(f"Exported ONNX model to: {output_file}")
     
-    # Save class mappings alongside ONNX model
-    if class_mappings:
+    # Save class mappings and skeleton connections alongside ONNX model
+    skeleton_connections = {}
+    if args.resume:
+        raw_ckpt = torch.load(args.resume, map_location='cpu', weights_only=False)
+        skeleton_connections = raw_ckpt.get('skeleton_connections', {})
+
+    if class_mappings or skeleton_connections:
         json_path = output_file.replace('.onnx', '_class_mappings.json')
-        save_class_mappings_json(class_mappings, json_path)
+        save_class_mappings_json(class_mappings, json_path, skeleton_connections=skeleton_connections)
 
     if args.check:
         import onnx

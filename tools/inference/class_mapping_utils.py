@@ -56,72 +56,91 @@ def load_class_mappings_from_checkpoint(checkpoint_path):
         return {}
 
 
-def save_class_mappings_json(class_mappings, output_path):
+def save_class_mappings_json(class_mappings, output_path, skeleton_connections=None):
     """
-    Save class mappings to a JSON file for use with ONNX/TensorRT models.
+    Save class mappings (and optionally skeleton connections) to a JSON file.
     
     Args:
         class_mappings: Dictionary mapping class IDs to class names
         output_path: Path where to save the JSON file
+        skeleton_connections: Optional dict mapping class IDs to list of [a, b] pairs
     """
-    if not class_mappings:
-        print("Warning: No class mappings to save")
-        return
-    
     try:
-        # Convert integer keys to strings for JSON compatibility
-        json_mappings = {str(k): v for k, v in class_mappings.items()}
+        payload = {}
+        if class_mappings:
+            payload['class_mappings'] = {str(k): v for k, v in class_mappings.items()}
+        if skeleton_connections:
+            # Keys must be strings for JSON
+            payload['skeleton_connections'] = {
+                str(k): v for k, v in skeleton_connections.items()
+            }
         
         with open(output_path, 'w') as f:
-            json.dump(json_mappings, f, indent=2)
+            json.dump(payload, f, indent=2)
         
-        print(f"Saved class mappings to: {output_path}")
+        print(f"Saved model metadata to: {output_path}")
+        if skeleton_connections:
+            print(f"  Includes skeleton connections for {len(skeleton_connections)} class(es).")
     except Exception as e:
-        print(f"Error saving class mappings to JSON: {e}")
+        print(f"Error saving metadata to JSON: {e}")
 
 
 def load_class_mappings_from_json(json_path):
     """
-    Load class mappings from a JSON file (for ONNX/TensorRT inference).
+    Load class mappings and skeleton connections from a JSON metadata file.
     
     Args:
-        json_path: Path to the class mappings JSON file
+        json_path: Path to the metadata JSON file
         
     Returns:
-        Dictionary mapping class IDs (as integers) to class names
+        Tuple of (class_mappings, skeleton_connections) where both are dicts
+        with integer keys. Returns ({}, {}) on failure.
     """
     if not os.path.exists(json_path):
-        print(f"Warning: Class mappings JSON not found at {json_path}")
-        return {}
+        print(f"Warning: Metadata JSON not found at {json_path}")
+        return {}, {}
     
     try:
         with open(json_path, 'r') as f:
-            json_mappings = json.load(f)
+            payload = json.load(f)
         
-        # Convert string keys back to integers
-        class_mappings = {int(k): v for k, v in json_mappings.items()}
-        
+        # Support both old format (flat dict of class_id->name)
+        # and new format ({class_mappings: {...}, skeleton_connections: {...}})
+        if 'class_mappings' in payload or 'skeleton_connections' in payload:
+            raw_mappings = payload.get('class_mappings', {})
+            raw_skeletons = payload.get('skeleton_connections', {})
+        else:
+            # Legacy: entire file is a flat class_id->name mapping
+            raw_mappings = payload
+            raw_skeletons = {}
+
+        class_mappings = {int(k): v for k, v in raw_mappings.items()}
+        skeleton_connections = {int(k): v for k, v in raw_skeletons.items()}
+
         print(f"\n{'='*60}")
         print("Loaded class mappings from JSON:")
         for class_id, class_name in sorted(class_mappings.items()):
             print(f"  ID {class_id}: {class_name}")
+        if skeleton_connections:
+            print(f"Loaded skeleton connections for {len(skeleton_connections)} class(es).")
         print(f"{'='*60}\n")
         
-        return class_mappings
+        return class_mappings, skeleton_connections
     except Exception as e:
-        print(f"Error loading class mappings from JSON: {e}")
-        return {}
+        print(f"Error loading metadata from JSON: {e}")
+        return {}, {}
 
 
 def find_class_mappings_json(model_path):
     """
-    Try to find a class_mappings.json file next to the model file.
+    Try to find a metadata JSON file next to the model file.
     
     Args:
         model_path: Path to the model file (.onnx, .engine, etc.)
         
     Returns:
-        Dictionary mapping class IDs to class names, or empty dict if not found
+        Tuple of (class_mappings, skeleton_connections), both with integer keys.
+        Returns ({}, {}) if not found.
     """
     model_dir = Path(model_path).parent
     model_name = Path(model_path).stem
@@ -138,7 +157,7 @@ def find_class_mappings_json(model_path):
             return load_class_mappings_from_json(str(json_path))
     
     print(f"Warning: Could not find class_mappings.json near {model_path}")
-    return {}
+    return {}, {}
 
 
 def print_detections(labels, scores, class_mappings, max_display=10):
