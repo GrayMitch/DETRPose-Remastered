@@ -97,4 +97,4 @@ criterion = L(Criterion)(
     num_body_points=17
 	)
 
-postprocessor = L(PostProcess)(num_select=60, num_body_points=17)
+postprocessor = L(PostProcess)(num_select=60, num_body_points=17, nms_iou_threshold=0.65, use_nms=True)

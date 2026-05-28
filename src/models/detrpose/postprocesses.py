@@ -21,10 +21,12 @@ from ...misc.box_ops import box_cxcywh_to_xyxy
 
 class PostProcess(nn.Module):
     """ This module converts the model's output into the format expected by the coco api"""
-    def __init__(self, num_select=60, num_body_points=17) -> None:
+    def __init__(self, num_select=60, num_body_points=17, nms_iou_threshold=0.65, use_nms=True) -> None:
         super().__init__()
         self.num_select = num_select
         self.num_body_points = num_body_points
+        self.nms_iou_threshold = nms_iou_threshold
+        self.use_nms = use_nms
         self.deploy_mode = False
 
     @torch.no_grad()
@@ -63,7 +65,16 @@ class PostProcess(nn.Module):
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)[:, None, :]
         boxes = box_cxcywh_to_xyxy(boxes) * scale_fct
 
-        results = [{'scores': s, 'labels': l, 'keypoints': k, 'boxes': b} for s, l, k, b in zip(scores, labels, keypoints_res, boxes)]
+        results = []
+        for s, l, k, b in zip(scores, labels, keypoints_res, boxes):
+            if self.use_nms and b.shape[0] > 0:
+                # Class-aware NMS: offset boxes by class id so different classes don't suppress each other
+                max_coord = b.max()
+                offsets = l.float() * (max_coord + 1)
+                boxes_for_nms = b + offsets[:, None]
+                keep = nms(boxes_for_nms, s, self.nms_iou_threshold)
+                s, l, k, b = s[keep], l[keep], k[keep], b[keep]
+            results.append({'scores': s, 'labels': l, 'keypoints': k, 'boxes': b})
         return results
 
     def deploy(self, ):
