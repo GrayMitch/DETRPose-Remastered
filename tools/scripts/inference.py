@@ -17,7 +17,7 @@ print(f"Project root: {project_root}")
 try:
     from src.core import instantiate
 except ImportError:
-    from src.core.workspace import instantiate
+    from src.core.workspace import instantiate # type: ignore
 
 
 # Deprecated hardcoded class names - will be replaced by checkpoint class_mappings
