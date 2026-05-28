@@ -18,6 +18,7 @@ import torchvision.transforms as T
 from PIL import Image, ImageDraw
 from copy import deepcopy
 from annotators import COCOVisualizer, CrowdPoseVisualizer
+from class_mapping_utils import find_class_mappings_json, print_detections
 
 annotators = {'COCO': COCOVisualizer, 'CrowdPose': CrowdPoseVisualizer}
 
@@ -152,10 +153,17 @@ def process_image(m, file_path, device):
 
     # Filter by score
     idx = scores > thrh
-    valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
+    valid_keypoints = keypoints[idx]
+    valid_labels = labels[idx]
+    valid_scores = scores[idx]
+    
+    # Print predictions with class names
+    if len(valid_labels) > 0:
+        print(f"\nDetections in {os.path.basename(file_path)}:")
+        print_detections(valid_labels.cpu().numpy(), valid_scores.cpu().numpy(), class_mappings, max_display=10)
     
     im_cv2 = cv2.cvtColor(np.array(im_pil), cv2.COLOR_RGB2BGR)
-    annotator.draw_on(im_cv2, valid_keypoints)
+    annotator.draw_on(im_cv2, valid_keypoints.cpu().numpy())
     cv2.imwrite(f"{OUTPUT_NAME}.jpg", im_cv2)
 
 def process_video(m, file_path, device):
@@ -201,9 +209,16 @@ def process_video(m, file_path, device):
         }
 
         output = m(blob)
-
-        scores, labels, keypoints = output.values()
-        scores, labels, keypoints = scores[0], labels[0], keypoints[0]
+        valid_labels = labels[idx]
+        valid_scores = scores[idx]
+        
+        # Print detections for first frame
+        if frame_count == 0 and len(valid_labels) > 0:
+            print(f"\nDetections in frame 0:")
+            print_detections(valid_labels.cpu().numpy(), valid_scores.cpu().numpy(), class_mappings, max_display=5)
+        
+        im_cv2 = frame
+        annotator.draw_on(im_cv2, valid_keypoints.cpu().numpy()bels[0], keypoints[0]
         
         # Filter by score
         idx = scores > thrh
@@ -238,9 +253,12 @@ if __name__ == "__main__":
     parser.add_argument("-trt", "--trt", type=str, required=True)
     parser.add_argument("--annotator", type=str, required=True, help="Annotator type: COCO or CrowdPose.")
     parser.add_argument("-i", "--input", type=str, required=True)
-    parser.add_argument("-d", "--device", type=str, default="cuda:0")
-    parser.add_argument("-t", "--thrh", type=float, required=False, default=None)
-
+    parser.add_argumes
+    global OUTPUT_NAME, thrh, annotator_type, class_mappings
+    thrh = 0.5 if args.thrh is None else args.thrh
+    
+    # Try to load class mappings from JSON file
+    class_mappings = find_class_mappings_json(args.trt)
     args = parser.parse_args()
 
     assert args.annotator.lower() in ['coco', 'crowdpose']

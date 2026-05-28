@@ -12,10 +12,11 @@ import torchvision.transforms as T
 from PIL import Image, ImageDraw
 from copy import deepcopy
 from annotators import COCOVisualizer, CrowdPoseVisualizer
+from class_mapping_utils import find_class_mappings_json, print_detections
 
 annotators = {'COCO': COCOVisualizer, 'CrowdPose': CrowdPoseVisualizer}
 
-def process_image(sess, im_pil):
+def process_image(sess, im_pil, file_name="image"):
     w, h = im_pil.size
     orig_size = torch.tensor([w, h])[None]
 
@@ -39,7 +40,14 @@ def process_image(sess, im_pil):
 
     # Filter by score
     idx = scores > thrh
-    valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
+    valid_keypoints = keypoints[idx]
+    valid_labels = labels[idx]
+    valid_scores = scores[idx]
+    
+    # Print predictions with class names
+    if len(valid_labels) > 0:
+        print(f"\nDetections in {file_name}:")
+        print_detections(valid_labels, valid_scores, class_mappings, max_display=10)
     
     im_cv2 = cv2.cvtColor(np.array(im_pil), cv2.COLOR_RGB2BGR)
     annotator.draw_on(im_cv2, valid_keypoints)
@@ -91,7 +99,14 @@ def process_video(sess, video_path):
         
         # Filter by score
         idx = scores > thrh
-        valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
+        valid_keypoints = keypoints[idx]
+        valid_labels = labels[idx]
+        valid_scores = scores[idx]
+        
+        # Print detections for first frame
+        if frame_count == 0 and len(valid_labels) > 0:
+            print(f"\nDetections in frame 0:")
+            print_detections(valid_labels, valid_scores, class_mappings, max_display=5)
         
         im_cv2 = frame
         annotator.draw_on(im_cv2, valid_keypoints)
@@ -104,20 +119,23 @@ def process_video(sess, video_path):
 
     cap.release()
     out.release()
-    print(f"Video processing complete. Result saved as '{OUTPUT_NAME}.mp4'.")
-
-def process_file(sess, file_path):
-    # Check if the input file is an image or a video
-    try:
-        # Try to open the input as an image
-        im_pil = Image.open(file_path).convert("RGB")
-        process_image(sess, im_pil)
+    print(f"Video processing compl, os.path.basename(file_path))
     except IOError:
         # Not an image, process as video
         process_video(sess, file_path)
 
 def main(args):
     assert args.annotator.lower() in ['coco', 'crowdpose']
+    # Global variables
+    global OUTPUT_NAME, thrh, annotator_type, class_mappings
+
+    """Main function."""
+    # Load the ONNX model
+    sess = ort.InferenceSession(args.onnx)
+    print(f"Using device: {ort.get_device()}")
+    
+    # Try to load class mappings from JSON file
+    class_mappings = find_class_mappings_json(args.onnx 'crowdpose']
     # Global variable
     global OUTPUT_NAME, thrh, annotator_type
 

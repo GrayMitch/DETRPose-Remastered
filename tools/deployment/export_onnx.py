@@ -15,6 +15,10 @@ from src.core import LazyConfig, instantiate
 import torch
 import torch.nn as nn
 
+# Import class mapping utilities
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../inference'))
+from class_mapping_utils import save_class_mappings_json
+
 def main(args, ):
     """main
     """
@@ -26,8 +30,16 @@ def main(args, ):
     model = instantiate(cfg.model)
     postprocessor = instantiate(cfg.postprocessor)
 
+    class_mappings = {}
+    
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
+        
+        # Extract class mappings from checkpoint
+        if 'class_mappings' in checkpoint:
+            class_mappings = checkpoint['class_mappings']
+            print("Found class mappings in checkpoint - will save alongside ONNX model")
+        
         if 'ema' in checkpoint:
             state = checkpoint['ema']['module']
         else:
@@ -86,6 +98,13 @@ def main(args, ):
         verbose=False,
         do_constant_folding=True,
     )
+    
+    print(f"Exported ONNX model to: {output_file}")
+    
+    # Save class mappings alongside ONNX model
+    if class_mappings:
+        json_path = output_file.replace('.onnx', '_class_mappings.json')
+        save_class_mappings_json(class_mappings, json_path)
 
     if args.check:
         import onnx

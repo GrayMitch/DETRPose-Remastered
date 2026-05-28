@@ -14,6 +14,7 @@ import torchvision.transforms as T
 from PIL import Image, ImageDraw
 from copy import deepcopy
 from annotators import COCOVisualizer, CrowdPoseVisualizer
+from class_mapping_utils import get_class_name, load_class_mappings_from_checkpoint, print_detections
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from src.core import LazyConfig, instantiate
@@ -39,11 +40,19 @@ def process_image(model, device, file_path):
 
     scores, labels, keypoints = output
     scores = scores[0].detach().cpu().numpy()
+    labels = labels[0].detach().cpu().numpy()
     keypoints = keypoints[0].detach().cpu().numpy()
     
     # Filter by score
     idx = scores > thrh
-    valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
+    valid_keypoints = keypoints[idx]
+    valid_labels = labels[idx]
+    valid_scores = scores[idx]
+    
+    # Print predictions with class names
+    if len(valid_labels) > 0:
+        print(f"\nDetections in {os.path.basename(file_path)}:")
+        print_detections(valid_labels, valid_scores, class_mappings, max_display=10)
     
     im_cv2 = cv2.cvtColor(np.array(im_pil), cv2.COLOR_RGB2BGR)
     annotator.draw_on(im_cv2, valid_keypoints)
@@ -91,11 +100,19 @@ def process_video(model, device, file_path):
 
         scores, labels, keypoints = output
         scores = scores[0].detach().cpu().numpy()
+        labels = labels[0].detach().cpu().numpy()
         keypoints = keypoints[0].detach().cpu().numpy()
         
         # Filter by score
         idx = scores > thrh
-        valid_keypoints = keypoints[idx] # Shape: (N, K, 2)
+        valid_keypoints = keypoints[idx]
+        valid_labels = labels[idx]
+        valid_scores = scores[idx]
+        
+        # Print detections for first frame
+        if frame_count == 0 and len(valid_labels) > 0:
+            print(f"\nDetections in frame 0:")
+            print_detections(valid_labels, valid_scores, class_mappings, max_display=5)
         
         im_cv2 = frame
         annotator.draw_on(im_cv2, valid_keypoints)
@@ -130,8 +147,8 @@ def create(args, classname):
     return build_func(args)
 
 def main(args):
-    # Global variable
-    global OUTPUT_NAME, thrh, annotator_type
+    # Global variables
+    global OUTPUT_NAME, thrh, annotator_type, class_mappings
 
     """Main function"""
     cfg = LazyConfig.load(args.config)
@@ -150,8 +167,15 @@ def main(args):
     else:
         raise Exception(f'Not implemented annotator for model with {num_body_points} keypoints')
 
+    # Initialize class_mappings
+    class_mappings = {}
+    
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
+        # Load class mappings from checkpoint
+        class_mappings = load_class_mappings_from_checkpoint(args.resume)
+        
+        checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False
         if 'ema' in checkpoint:
             state = checkpoint['ema']['module']
         else:
@@ -163,6 +187,7 @@ def main(args):
     else:
         # raise AttributeError('Only support resume to load model.state_dict by now.')
         print('not load model.state_dict, use default init state dict...')
+        print("\nWarning: No checkpoint loaded. Class mappings unavailable.\n")
 
     class Model(nn.Module):
         def __init__(self):

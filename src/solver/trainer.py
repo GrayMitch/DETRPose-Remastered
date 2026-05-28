@@ -295,6 +295,7 @@ class Trainer(object):
                         'warmup_scheduler': self.warmup_scheduler.state_dict() if self.warmup_scheduler is not None else None,
                         'epoch': epoch,
                         'args': args,
+                        'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
                     }
                     dist_utils.save_on_master(weights, checkpoint_path)
                 
@@ -352,6 +353,7 @@ class Trainer(object):
                     'warmup_scheduler': self.warmup_scheduler.state_dict() if self.warmup_scheduler is not None else None,
                     'epoch': epoch,
                     'args': args,
+                    'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
                 }
                 dist_utils.save_on_master(weights, checkpoint_path)
 

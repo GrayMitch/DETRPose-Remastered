@@ -20,24 +20,11 @@ except ImportError:
     from src.core.workspace import instantiate
 
 
-CLASS_NAMES = {
-    2: "black_bx_side",
-    3: "black_bk_side",
-    4: "black_bk_upright",
-    7: "black_bx_upright",
-    10: "black_ar_side",
-    11: "black__g_side",
-    12: "black__h_upright",
-    13: "white_ax_side",
-    14: "black_az_side",
-    16: "green_ar_upright",
-    17: "green_ar_side",
-    19: "white_ax_upright",
-    20: "black_ar_upright",
-    21: "black__h_side",
-    22: "black__g_upright",
-    23: "black_az_upright",
-}
+# Deprecated hardcoded class names - will be replaced by checkpoint class_mappings
+# CLASS_NAMES = {
+#     2: "black_bx_side",
+#     ...
+# }
 
 
 class DETRPoseInference:
@@ -66,6 +53,17 @@ class DETRPoseInference:
 
         print(f"Loading checkpoint: {checkpoint_path}")
         ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+        # Load class mappings from checkpoint
+        self.class_mappings = ckpt.get('class_mappings', {})
+        if self.class_mappings:
+            print(f"\n{'='*60}")
+            print("Loaded class mappings from checkpoint:")
+            for class_id, class_name in sorted(self.class_mappings.items()):
+                print(f"  ID {class_id}: {class_name}")
+            print(f"{'='*60}\n")
+        else:
+            print("\nWarning: No class mappings found in checkpoint. Using numeric IDs.\n")
 
         state_dict = self._extract_state_dict(ckpt, use_ema=use_ema)
 
@@ -329,7 +327,7 @@ class DETRPoseInference:
 
         for i, (score, label, kps) in enumerate(zip(scores, labels, keypoints)):
             color = self.get_object_color(i)
-            class_name = CLASS_NAMES.get(int(label), f"cls_{int(label)}")
+            class_name = self.class_mappings.get(int(label), f"class_{int(label)}")
             text = f"{class_name} {score:.3f}"
 
             # Draw keypoints/skeleton first in the object's colour.

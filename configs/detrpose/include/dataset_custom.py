@@ -16,7 +16,7 @@ from .detrpose_hgnetv2 import eval_spatial_size
 scales = [(640, 640)]
 max_size = 640
 
-__all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator", "NUM_CLASSES", "NUM_BODY_POINTS"]
+__all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator", "NUM_CLASSES", "NUM_BODY_POINTS", "CLASS_MAPPINGS"]
 
 # ── Data root ─────────────────────────────────────────────────────────────────
 DATA_ROOT = "./data/coco"
@@ -80,6 +80,9 @@ _cats = _ann["categories"]
 # num_classes must cover the highest category ID (IDs may be non-contiguous)
 NUM_CLASSES     = max(c["id"] for c in _cats) + 1
 NUM_BODY_POINTS = max(len(c["keypoints"]) for c in _cats)
+
+# Create class mapping dictionary: {class_id: class_name}
+CLASS_MAPPINGS = {c["id"]: c["name"] for c in _cats}
 
 # ─────────────────────────────────────────────────────────────────────────────
 
