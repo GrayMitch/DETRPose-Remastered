@@ -1,7 +1,7 @@
 from .include.detrpose_hgnetv2 import model, criterion, training_params, postprocessor
 from .include.dataset_custom import (
     dataset_train, dataset_val, dataset_test, evaluator,
-    NUM_CLASSES, NUM_BODY_POINTS
+    NUM_CLASSES, NUM_BODY_POINTS, CLASS_MAPPINGS
 )
 
 from src.core import LazyCall as L
