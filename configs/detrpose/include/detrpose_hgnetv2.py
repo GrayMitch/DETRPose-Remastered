@@ -15,7 +15,7 @@ training_params = {
     "save_checkpoint_interval": 1,
     "grad_accum_steps": 1,
     "print_freq": 100,
-    'sync_bn': True,
+    'sync_bn': False,
     'use_ema': False,
     'dist_url': 'env://',
 }
