@@ -65,6 +65,13 @@ class DETRPoseInference:
         else:
             print("\nWarning: No class mappings found in checkpoint. Using numeric IDs.\n")
 
+        # Load skeleton connections from checkpoint: {class_id: [[a, b], ...]}
+        self.skeleton_connections = ckpt.get('skeleton_connections', {})
+        if self.skeleton_connections:
+            print("Loaded skeleton connections from checkpoint.")
+        else:
+            print("Warning: No skeleton connections in checkpoint. Using linear chain fallback.")
+
         state_dict = self._extract_state_dict(ckpt, use_ema=use_ema)
 
         # Remove possible DataParallel/DDP prefix.
@@ -190,7 +197,7 @@ class DETRPoseInference:
 
         return points
 
-    def draw_skeleton(self, img, kps, color):
+    def draw_skeleton(self, img, kps, color, skeleton=None):
         h, w = img.shape[:2]
         points = self._normalize_keypoints_array(kps, w, h)
 
@@ -199,9 +206,14 @@ class DETRPoseInference:
             cv2.circle(img, (x, y), 3, color, -1)
             cv2.circle(img, (x, y), 4, (0, 0, 0), 1)
 
-        # Draw simple chain skeleton.
-        for i in range(len(points) - 1):
-            cv2.line(img, points[i], points[i + 1], color, 1)
+        # Draw skeleton using topology from dataset, or fall back to linear chain.
+        if skeleton:
+            for a, b in skeleton:
+                if a < len(points) and b < len(points):
+                    cv2.line(img, points[a], points[b], color, 1)
+        else:
+            for i in range(len(points) - 1):
+                cv2.line(img, points[i], points[i + 1], color, 1)
 
         return points
 
@@ -331,7 +343,8 @@ class DETRPoseInference:
             text = f"{class_name} {score:.3f}"
 
             # Draw keypoints/skeleton first in the object's colour.
-            points = self.draw_skeleton(vis, kps, color)
+            skeleton = self.skeleton_connections.get(int(label), [])
+            points = self.draw_skeleton(vis, kps, color, skeleton)
 
             # Draw bounding box and label only if the model provides bbox information
             if boxes is not None and len(boxes) > i:

@@ -300,6 +300,7 @@ class Trainer(object):
                         'epoch': epoch,
                         'args': args,
                         'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
+                        'skeleton_connections': self.cfg.get('CLASS_SKELETONS', {}),  # Bake skeleton topology into checkpoint
                     }
                     dist_utils.save_on_master(weights, checkpoint_path)
                 
@@ -358,6 +359,7 @@ class Trainer(object):
                     'epoch': epoch,
                     'args': args,
                     'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
+                    'skeleton_connections': self.cfg.get('CLASS_SKELETONS', {}),  # Bake skeleton topology into checkpoint
                 }
                 dist_utils.save_on_master(weights, checkpoint_path)
 
