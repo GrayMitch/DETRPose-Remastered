@@ -157,6 +157,6 @@ dataset_test = L(DataLoader)(
 
 evaluator = L(CocoEvaluator)(
 	ann_file=VAL_ANN,
-	iou_types=['keypoints'],
+	iou_types=['bbox', 'keypoints'],
 	useCats=True
 	)

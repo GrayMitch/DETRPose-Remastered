@@ -84,9 +84,9 @@ model = L(DETRPose)(
 
 criterion = L(Criterion)(
 	num_classes=num_classes,
-	weight_dict={'loss_vfl': 2.0, 'loss_keypoints': 10.0, 'loss_oks': 4.0}, 
+	weight_dict={'loss_vfl': 2.0, 'loss_keypoints': 10.0, 'loss_oks': 4.0, 'loss_bbox': 5.0, 'loss_giou': 2.0}, 
 	focal_alpha=0.25,
-	losses=['vfl', 'keypoints'], 
+	losses=['vfl', 'keypoints', 'boxes'], 
 	matcher=L(HungarianMatcher)(
 		cost_class=2.0,
 		cost_keypoints=10.0,
