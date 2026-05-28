@@ -2,7 +2,7 @@ import os
 import shutil
 
 input_folder = 'onnx_engines'
-input_files = [f for f in os.listdir(input_folder)]
+input_files = [f for f in os.listdir(input_folder) if f.endswith('.onnx')]
 
 output_folder = 'trt_engines'
 output_files = [f.replace('onnx', 'engine') for f in input_files]
