@@ -16,7 +16,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 import onnxruntime as ort
+from torchvision.ops.boxes import nms as torchvision_nms
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from class_mapping_utils import find_class_mappings_json, print_detections
@@ -110,6 +112,8 @@ def draw_label(img, text, anchor_point, color):
 # Inference class
 # ---------------------------------------------------------------------------
 
+NMS_IOU_THRESHOLD = 0.65
+
 class ONNXInference:
     def __init__(self, onnx_path, conf_thresh=0.35, image_size=640):
         self.conf_thresh = conf_thresh
@@ -144,7 +148,7 @@ class ONNXInference:
 
         h, w = img.shape[:2]
         im_data = self.preprocess(img)
-        orig_size = np.array([[w, h]], dtype=np.float32)
+        orig_size = np.array([[w, h]], dtype=np.int64)
 
         outputs = self.sess.run(
             output_names=None,
@@ -162,6 +166,19 @@ class ONNXInference:
         keypoints = keypoints[keep]
         if boxes is not None:
             boxes = boxes[keep]
+
+        # Class-aware NMS (mirrors PostProcess non-deploy path)
+        if boxes is not None and len(scores) > 0:
+            t_boxes  = torch.from_numpy(boxes.astype(np.float32))
+            t_scores = torch.from_numpy(scores.astype(np.float32))
+            t_labels = torch.from_numpy(labels.astype(np.float32))
+            max_coord = t_boxes.max()
+            offsets = t_labels * (max_coord + 1)
+            keep_nms = torchvision_nms(t_boxes + offsets[:, None], t_scores, NMS_IOU_THRESHOLD).numpy()
+            scores    = scores[keep_nms]
+            labels    = labels[keep_nms]
+            keypoints = keypoints[keep_nms]
+            boxes     = boxes[keep_nms]
 
         if len(scores) > 0:
             print(f"\nDetections in {image_path.name}:")

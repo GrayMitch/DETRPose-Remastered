@@ -12,15 +12,13 @@ Usage:
 import os
 import sys
 import argparse
-import collections
-import contextlib
 import time
-from collections import OrderedDict
 from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
+from torchvision.ops.boxes import nms as torchvision_nms
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from class_mapping_utils import find_class_mappings_json, print_detections
@@ -130,42 +128,57 @@ class TRTInference:
             self.engine = runtime.deserialize_cuda_engine(f.read())
 
         self.context = self.engine.create_execution_context()
-        self.bindings = self._get_bindings(max_batch_size)
-        self.bindings_addr = OrderedDict((n, v.ptr) for n, v in self.bindings.items())
         self.input_names  = [n for n in self.engine if self.engine.get_tensor_mode(n) == trt.TensorIOMode.INPUT]
         self.output_names = [n for n in self.engine if self.engine.get_tensor_mode(n) == trt.TensorIOMode.OUTPUT]
+        self.output_buffers = self._alloc_output_buffers(max_batch_size)
+        self.stream = torch.cuda.Stream(device=device)
 
-    def _get_bindings(self, max_batch_size):
+    def _alloc_output_buffers(self, max_batch_size):
         trt = self.trt
-        Binding = collections.namedtuple("Binding", ("name", "dtype", "shape", "data", "ptr"))
-        bindings = OrderedDict()
-        for name in self.engine:
+        buffers = {}
+        for name in self.output_names:
             shape = list(self.engine.get_tensor_shape(name))
-            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
             if shape[0] == -1:
                 shape[0] = max_batch_size
-                if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
-                    self.context.set_input_shape(name, shape)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
             data = torch.from_numpy(np.empty(shape, dtype=dtype)).to(self.device)
-            bindings[name] = Binding(name, dtype, shape, data, data.data_ptr())
-        return bindings
+            buffers[name] = data
+        return buffers
 
     def __call__(self, blob):
+        trt = self.trt
+
+        # Set input shapes and addresses
         for n in self.input_names:
-            blob[n] = blob[n].to(dtype=self.bindings[n].data.dtype)
-            if list(self.bindings[n].shape) != list(blob[n].shape):
-                self.context.set_input_shape(n, blob[n].shape)
-                self.bindings[n] = self.bindings[n]._replace(shape=list(blob[n].shape))
-        self.bindings_addr.update({n: blob[n].data_ptr() for n in self.input_names})
-        self.context.execute_v2(list(self.bindings_addr.values()))
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        return {n: self.bindings[n].data for n in self.output_names}
+            tensor = blob[n]
+            # Cast to the dtype the engine expects
+            engine_dtype = trt.nptype(self.engine.get_tensor_dtype(n))
+            tensor = tensor.to(dtype=torch.from_numpy(np.empty(0, dtype=engine_dtype)).dtype)
+            tensor = tensor.contiguous().to(self.device)
+            blob[n] = tensor
+            self.context.set_input_shape(n, list(tensor.shape))
+            self.context.set_tensor_address(n, tensor.data_ptr())
+
+        # Set output addresses (reallocate if batch size changed)
+        for n in self.output_names:
+            out_shape = list(self.context.get_tensor_shape(n))
+            if list(self.output_buffers[n].shape) != out_shape:
+                dtype = trt.nptype(self.engine.get_tensor_dtype(n))
+                self.output_buffers[n] = torch.from_numpy(
+                    np.empty(out_shape, dtype=dtype)).to(self.device)
+            self.context.set_tensor_address(n, self.output_buffers[n].data_ptr())
+
+        self.context.execute_async_v3(stream_handle=self.stream.cuda_stream)
+        self.stream.synchronize()
+
+        return {n: self.output_buffers[n] for n in self.output_names}
 
 
 # ---------------------------------------------------------------------------
 # Inference class
 # ---------------------------------------------------------------------------
+
+NMS_IOU_THRESHOLD = 0.65
 
 class TRTInferenceRunner:
     def __init__(self, engine_path, conf_thresh=0.35, image_size=640, device="cuda:0"):
@@ -213,6 +226,19 @@ class TRTInferenceRunner:
         keypoints = keypoints[keep]
         if boxes is not None:
             boxes = boxes[keep]
+
+        # Class-aware NMS (mirrors PostProcess non-deploy path)
+        if boxes is not None and len(scores) > 0:
+            t_boxes  = torch.from_numpy(boxes.astype(np.float32))
+            t_scores = torch.from_numpy(scores.astype(np.float32))
+            t_labels = torch.from_numpy(labels.astype(np.float32))
+            max_coord = t_boxes.max()
+            offsets = t_labels * (max_coord + 1)
+            keep_nms = torchvision_nms(t_boxes + offsets[:, None], t_scores, NMS_IOU_THRESHOLD).numpy()
+            scores    = scores[keep_nms]
+            labels    = labels[keep_nms]
+            keypoints = keypoints[keep_nms]
+            boxes     = boxes[keep_nms]
 
         if len(scores) > 0:
             print(f"\nDetections in {image_path.name}:")
