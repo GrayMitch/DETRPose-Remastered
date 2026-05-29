@@ -37,7 +37,7 @@ optimizer = L(optim.AdamW)(
     )
 
 lr_scheduler = L(optim.lr_scheduler.MultiStepLR)(
-    milestones=[1000],
+    milestones=[80],
     gamma=0.1
     )
 
