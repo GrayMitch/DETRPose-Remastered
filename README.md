@@ -46,7 +46,8 @@ This is an extended version of [DETRPose](https://github.com/SebastianJanampa/DE
 - ✨ **Custom Dataset Support**: Train on your own pose estimation datasets with custom keypoint definitions
 - 🎯 **Flexible Keypoint Configuration**: Define custom keypoint structures and skeleton connections via JSON
 - 🎭 **Mask Annotation Support**: Support for segmentation masks alongside keypoint annotations
-- 📦 **Automated Data Extraction**: Built-in support for .7z archives with automatic extraction
+- 📦 **Archive Input Support**: All inference scripts accept `.7z` or `.zip` archives directly — they are extracted automatically using native `7z` before inference runs. Nested archives are recursively resolved until none remain.
+- 🔍 **Recursive Folder Scanning**: Inference scripts now scan input folders recursively (`rglob`), finding images in nested sub-directories automatically.
 - 🔧 **Enhanced Inference Tools**: Improved inference scripts with custom category support
 - 📊 **Custom Category Management**: Easy configuration of custom object categories
 
@@ -216,14 +217,16 @@ torchrun `
 #### Inference
 
 ```bash
-# Run inference on images or videos
-python tools/scripts/inference.py \
+# Run inference on images, folders, or .7z/.zip archives
+python tools/inference/inference.py \
   --checkpoint output/detrpose_hgnetv2_s_custom/checkpoint_best_regular.pth \
-  --input path/to/image_or_folder \
+  --input path/to/image_or_folder_or_archive \
   --output predictions/ \
   --conf_thresh 0.35 \
   --device cuda
 ```
+
+> Archives (`.7z`, `.zip`) are extracted automatically before inference. Images are found recursively in nested sub-directories.
 
 ## Tools
 
@@ -234,19 +237,21 @@ This repository includes multiple inference options:
 <details>
 <summary> Custom Inference Script </summary>
 
-The `tools/scripts/inference.py` provides an easy-to-use interface for custom datasets:
+The `tools/inference/inference.py` provides an easy-to-use interface for custom datasets:
 
 ```shell
-python tools/scripts/inference.py \
+python tools/inference/inference.py \
     --checkpoint output/detrpose_hgnetv2_s_custom/checkpoint_best_regular.pth \
-    --input path/to/image_or_folder \
+    --input path/to/image_or_folder_or_archive \
     --output predictions/ \
     --conf_thresh 0.35 \
     --device cuda
 ```
 
 **Features**:
-- Supports both images and folders
+- Supports images, folders, and `.7z`/`.zip` archives as `--input`
+- Recursive folder scanning — images in nested sub-directories are found automatically
+- Automatic archive extraction (including nested archives) using native `7z`
 - Automatic EMA weight loading
 - Configurable confidence threshold
 - Custom category name mapping
@@ -293,29 +298,32 @@ Inference on images and videos is supported through ONNX and TensorRT backends.
 ```shell
 # ONNX inference on a single file
 python tools/inference/onnx_inf.py \
-  --onnx detrpose_hgnetv2_${MODEL}_custom.onnx \
-  --input examples/example1.jpg \
-  --annotator COCO
+  --onnx onnx_engines/detrpose_hgnetv2_${MODEL}_custom.onnx \
+  --input examples/example1.jpg
 
 # TensorRT inference on a single file
 python tools/inference/trt_inf.py \
-  --trt detrpose_hgnetv2_${MODEL}_custom.engine \
-  --input examples/example1.jpg \
-  --annotator COCO
+  --trt trt_engines/detrpose_hgnetv2_${MODEL}_custom.engine \
+  --input examples/example1.jpg
 
 # PyTorch inference on a single file
-python tools/inference/torch_inf.py \
-  -c configs/detrpose/detrpose_hgnetv2_${MODEL}_custom.py \
-  -r output/detrpose_hgnetv2_${MODEL}_custom/checkpoint_best_regular.pth \
+python tools/inference/inference.py \
+  --checkpoint output/detrpose_hgnetv2_${MODEL}_custom/checkpoint_best_regular.pth \
   --input examples/example1.jpg \
   --device cuda:0
 
-# Batch inference on a folder
+# Batch inference on a folder (recursive — finds images in sub-directories)
 python tools/inference/onnx_inf.py \
-  --onnx detrpose_hgnetv2_${MODEL}_custom.onnx \
-  --input examples/ \
-  --annotator COCO
+  --onnx onnx_engines/detrpose_hgnetv2_${MODEL}_custom.onnx \
+  --input examples/
+
+# Inference directly from an archive — extracted automatically before running
+python tools/inference/onnx_inf.py \
+  --onnx onnx_engines/detrpose_hgnetv2_${MODEL}_custom.onnx \
+  --input dataset.7z
 ```
+
+> **Requirements**: Archive extraction requires `7z` to be installed and available on your `PATH`.
 
 </details>
 
