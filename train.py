@@ -39,6 +39,8 @@ def get_args_parser():
 
 def main(args):
     torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision('high')
+    torch._dynamo.config.capture_scalar_outputs = True
     cfg = LazyConfig.load(args.config_file)
 
     updates = OmegaConf.create()

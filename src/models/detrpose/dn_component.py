@@ -38,6 +38,7 @@ def get_sigmas(num_keypoints, device):
     return sigmas[None, :, None]
 
 
+@torch._dynamo.disable
 def prepare_for_cdn(dn_args, training, num_queries, num_classes, num_keypoints, hidden_dim, label_enc, pose_enc, img_dim, device):
     """
         A major difference of DINO from DN-DETR is that the author process pattern embedding pattern embedding in its detector
