@@ -202,14 +202,16 @@ class RepNCSPELAN4(nn.Module):
         self.cv4 = ConvNormLayer_fuse(c3+(2*c4), c2, 1, 1, bias=bias, act=act)
 
     def forward_chunk(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend((m(y[-1])) for m in [self.cv2, self.cv3])
-        return self.cv4(torch.cat(y, 1))
+        y0, y1 = self.cv1(x).chunk(2, 1)
+        cv2_out = self.cv2(y1)
+        cv3_out = self.cv3(cv2_out)
+        return self.cv4(torch.cat([y0, y1, cv2_out, cv3_out], 1))
 
     def forward(self, x):
-        y = list(self.cv1(x).split((self.c, self.c), 1))
-        y.extend(m(y[-1]) for m in [self.cv2, self.cv3])
-        return self.cv4(torch.cat(y, 1))
+        y0, y1 = self.cv1(x).split((self.c, self.c), 1)
+        cv2_out = self.cv2(y1)
+        cv3_out = self.cv3(cv2_out)
+        return self.cv4(torch.cat([y0, y1, cv2_out, cv3_out], 1))
 
 
 class CSPLayer(nn.Module):
