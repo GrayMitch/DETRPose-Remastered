@@ -10,9 +10,28 @@ Copyright (c) 2023 IDEA. All Rights Reserved.
 """
 
 import torch
-from scipy.optimize import linear_sum_assignment
+import lapjv
 from torch import nn
 import numpy as np
+
+
+def _lapjv_solve(cost_np):
+    """Faster drop-in for scipy.optimize.linear_sum_assignment using lapjv."""
+    n_rows, n_cols = cost_np.shape
+    if n_rows == 0 or n_cols == 0:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+    # lapjv requires a square float64 matrix; pad rectangular matrices with a
+    # large sentinel so dummy assignments are strongly avoided.
+    size = max(n_rows, n_cols)
+    if n_rows != n_cols:
+        padded = np.full((size, size), 1e9, dtype=np.float64)
+        padded[:n_rows, :n_cols] = cost_np.astype(np.float64)
+    else:
+        padded = cost_np.astype(np.float64)
+    _, x, _ = lapjv.lapjv(padded)           # x[row] = assigned_col
+    row_ind = np.where(x[:n_rows] < n_cols)[0]
+    col_ind = x[row_ind]
+    return row_ind, col_ind
 
 
 class HungarianMatcher(nn.Module):
@@ -92,7 +111,7 @@ class HungarianMatcher(nn.Module):
 
         # Final cost matrix
         sizes = [len(v["boxes"]) for v in targets]
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+        indices = [_lapjv_solve(c[i].numpy()) for i, c in enumerate(C.split(sizes, -1))]
 
         if tgt_ids.shape[0] > 0:
             cost_mean_dict = {

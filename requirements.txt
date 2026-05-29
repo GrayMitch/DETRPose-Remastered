@@ -6,7 +6,7 @@ xtcocotools
 omegaconf
 calflops
 iopath
-scipy
+lapjv
 torch
 torchvision
 numpy==1.23.5

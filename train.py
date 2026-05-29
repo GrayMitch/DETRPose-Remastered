@@ -1,4 +1,5 @@
 import argparse
+import torch
 from omegaconf import OmegaConf
 
 from src.solver import Trainer
@@ -31,10 +32,13 @@ def get_args_parser():
     parser.add_argument("--local_rank", type=int, help='local rank for DistributedDataParallel')
     parser.add_argument('--amp', action='store_true',
                         help="Train with mixed precision")
+    parser.add_argument('--eval_interval', default=1, type=int,
+                        help='Run COCO evaluation every N epochs (default: 1, always runs on last epoch)')
 
     return parser
 
 def main(args):
+    torch.backends.cudnn.benchmark = True
     cfg = LazyConfig.load(args.config_file)
 
     updates = OmegaConf.create()

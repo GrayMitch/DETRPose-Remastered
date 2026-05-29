@@ -110,6 +110,7 @@ class Trainer(object):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_without_ddp = instantiate(self.cfg.model).to(self.device)
+        self.model_without_ddp = torch.compile(self.model_without_ddp)
         self.model = dist_utils.warp_model(
             self.model_without_ddp.to(args.device), 
             sync_bn=args.sync_bn, 
@@ -316,48 +317,54 @@ class Trainer(object):
             self._backup_output_to_gdrive(epoch)
 
             module = self.ema.module if self.ema is not None else self.model
-                    
-            # eval
-            test_stats = evaluate(
-                module, 
-                self.postprocessor, 
-                self.evaluator,
-                self.dataloader_val, 
-                self.device, 
-                self.writer
-            )
 
-            if self.writer is not None and dist_utils.is_main_process():
-                coco_stats = test_stats['coco_eval_keypoints']
-                coco_names = ["sAP50:95", "sAP50", "sAP75", "sAP50:95-Medium", "sAP50:95-Large"]
-                for k, val in zip(coco_names, coco_stats):
-                    self.writer.add_scalar(f"Test/{k}", val, epoch)
-                
+            eval_interval = getattr(args, 'eval_interval', 1)
+            should_eval = (epoch % eval_interval == 0) or (epoch == args.epochs - 1)
+
+            if should_eval:
+                # eval
+                test_stats = evaluate(
+                    module, 
+                    self.postprocessor, 
+                    self.evaluator,
+                    self.dataloader_val, 
+                    self.device, 
+                    self.writer
+                )
+
+                if self.writer is not None and dist_utils.is_main_process():
+                    coco_stats = test_stats['coco_eval_keypoints']
+                    coco_names = ["sAP50:95", "sAP50", "sAP75", "sAP50:95-Medium", "sAP50:95-Large"]
+                    for k, val in zip(coco_names, coco_stats):
+                        self.writer.add_scalar(f"Test/{k}", val, epoch)
+
+                map_regular = test_stats["coco_eval_keypoints"][0]
+                _isbest = self.best_map_holder.update(map_regular, epoch, is_ema=False)
+
+                if _isbest:
+                    print(f"New best achieved @ epoch {epoch:04d}!!!...")
+                    checkpoint_path = self.output_dir / 'checkpoint_best_regular.pth'
+                    weights = {
+                        'model': self.model_without_ddp.state_dict(),
+                        'ema': self.ema.state_dict() if self.ema is not None else None,
+                        'optimizer': self.optimizer.state_dict(),
+                        'lr_scheduler': self.lr_scheduler.state_dict(),
+                        'warmup_scheduler': self.warmup_scheduler.state_dict() if self.warmup_scheduler is not None else None,
+                        'epoch': epoch,
+                        'args': args,
+                        'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
+                        'skeleton_connections': self.cfg.get('CLASS_SKELETONS', {}),  # Bake skeleton topology into checkpoint
+                    }
+                    dist_utils.save_on_master(weights, checkpoint_path)
+            else:
+                test_stats = {}
+
             log_stats = {
                     **{f'train_{k}': v for k, v in train_stats.items()},
                     **{f'test_{k}': v for k, v in test_stats.items()},
                     'epoch': epoch,
                     'n_parameters': model_stats['params']
                 }
-
-            map_regular = test_stats["coco_eval_keypoints"][0]
-            _isbest = self.best_map_holder.update(map_regular, epoch, is_ema=False)
-
-            if _isbest:
-                print(f"New best achieved @ epoch {epoch:04d}!!!...")
-                checkpoint_path = self.output_dir / 'checkpoint_best_regular.pth'
-                weights = {
-                    'model': self.model_without_ddp.state_dict(),
-                    'ema': self.ema.state_dict() if self.ema is not None else None,
-                    'optimizer': self.optimizer.state_dict(),
-                    'lr_scheduler': self.lr_scheduler.state_dict(),
-                    'warmup_scheduler': self.warmup_scheduler.state_dict() if self.warmup_scheduler is not None else None,
-                    'epoch': epoch,
-                    'args': args,
-                    'class_mappings': self.cfg.get('CLASS_MAPPINGS', {}),  # Bake class mappings into checkpoint
-                    'skeleton_connections': self.cfg.get('CLASS_SKELETONS', {}),  # Bake skeleton topology into checkpoint
-                }
-                dist_utils.save_on_master(weights, checkpoint_path)
 
             try:
                 log_stats.update({'now_time': str(datetime.datetime.now())})
@@ -373,7 +380,7 @@ class Trainer(object):
                     f.write(json.dumps(log_stats) + "\n")
 
                 # for evaluation logs
-                if self.evaluator is not None:
+                if should_eval and self.evaluator is not None:
                     (self.output_dir / 'eval').mkdir(exist_ok=True)
                     if "keypoints" in self.evaluator.coco_eval:
                         filenames = ['latest.pth']

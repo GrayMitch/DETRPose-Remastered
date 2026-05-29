@@ -25,23 +25,18 @@ VAL_DIR   = os.path.join(DATA_ROOT, "val")
 
 
 def _extract_7z(archive_path: str, extract_to: str) -> None:
-	"""Extract a .7z archive into extract_to, using py7zr or the 7z CLI."""
-	try:
-		import py7zr
-		with py7zr.SevenZipFile(archive_path, mode='r') as z:
-			z.extractall(extract_to)
-	except ImportError:
-		import subprocess
-		result = subprocess.run(
-			['7z', 'x', archive_path, f'-o{extract_to}', '-y'],
-			capture_output=True, text=True
+	"""Extract a .7z archive into extract_to using the native 7z CLI."""
+	import subprocess
+	result = subprocess.run(
+		['7z', 'x', archive_path, f'-o{extract_to}', '-y'],
+		capture_output=True, text=True
+	)
+	if result.returncode != 0:
+		raise RuntimeError(
+			f"Failed to extract '{archive_path}'.\n"
+			"7-Zip must be installed and '7z' must be on PATH.\n"
+			f"stderr: {result.stderr}"
 		)
-		if result.returncode != 0:
-			raise RuntimeError(
-				f"Failed to extract '{archive_path}'.\n"
-				"Install py7zr (`pip install py7zr`) or 7-Zip and make sure '7z' is on PATH.\n"
-				f"stderr: {result.stderr}"
-			)
 
 
 def _ensure_dir(dir_path: str) -> None:
@@ -103,10 +98,12 @@ dataset_train = L(DataLoader)(
 	collate_fn=L(BatchImageCollateFunction)(
 		base_size=eval_spatial_size[0],
 		),
-	num_workers=4,
+	num_workers=8,
 	shuffle=True,
 	drop_last=True,
-	pin_memory=True
+	pin_memory=True,
+	persistent_workers=True,
+	prefetch_factor=4,
 	)
 
 dataset_val = L(DataLoader)(
@@ -123,10 +120,12 @@ dataset_val = L(DataLoader)(
 	collate_fn=L(BatchImageCollateFunction)(
 		base_size=eval_spatial_size[0],
 		),
-	num_workers=4,
+	num_workers=8,
 	shuffle=False,
 	drop_last=False,
-	pin_memory=True
+	pin_memory=True,
+	persistent_workers=True,
+	prefetch_factor=4,
 	)
 
 dataset_test = L(DataLoader)(
@@ -143,10 +142,12 @@ dataset_test = L(DataLoader)(
 	collate_fn=L(BatchImageCollateFunction)(
 		base_size=eval_spatial_size[0],
 		),
-	num_workers=4,
+	num_workers=8,
 	shuffle=False,
 	drop_last=False,
-	pin_memory=True
+	pin_memory=True,
+	persistent_workers=True,
+	prefetch_factor=4,
 	)
 
 evaluator = L(CocoEvaluator)(
