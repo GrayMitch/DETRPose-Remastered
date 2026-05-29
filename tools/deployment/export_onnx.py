@@ -17,7 +17,7 @@ import torch.nn as nn
 
 # Import class mapping utilities
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../inference'))
-from class_mapping_utils import save_class_mappings_json
+from class_mapping_utils import save_class_mappings_json # type: ignore
 
 def main(args, ):
     """main

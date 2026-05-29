@@ -281,7 +281,7 @@ class TRTInferenceRunner:
 
         image_paths = []
         for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]:
-            image_paths.extend(input_path.glob(ext))
+            image_paths.extend(input_path.rglob(ext))
         image_paths = sorted(image_paths)
 
         if not image_paths:
@@ -291,6 +291,56 @@ class TRTInferenceRunner:
         print(f"Found {len(image_paths)} images")
         for img_path in image_paths:
             self.infer_image(img_path, output_dir)
+
+
+def resolve_and_extract_archives(input_path):
+    """
+    Resolves the input path before inference:
+    - If input_path is a .7z or .zip archive, extract it to a same-named folder.
+    - Then recursively scan the folder for any nested archives, extract and delete
+      them until none remain.
+    Returns the resolved folder Path.
+    """
+    import subprocess
+
+    ARCHIVE_EXTS = {'.7z', '.zip'}
+
+    def _extract_one(archive_path):
+        archive_path = Path(archive_path)
+        out_dir = archive_path.parent / archive_path.stem
+        out_dir.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ['7z', 'x', str(archive_path), f'-o{out_dir}', '-y'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"7z extraction failed for {archive_path.name}:\n"
+                f"{result.stderr.decode(errors='replace')}"
+            )
+        archive_path.unlink()
+        print(f"Extracted and removed archive: {archive_path.name} -> {out_dir}")
+        return out_dir
+
+    input_path = Path(input_path)
+    # If the input itself is an archive, extract it to a folder first.
+    if input_path.is_file() and input_path.suffix.lower() in ARCHIVE_EXTS:
+        input_path = _extract_one(input_path)
+
+    # Recursively extract any nested archives until none remain.
+    if input_path.is_dir():
+        while True:
+            archives = sorted(
+                p for p in input_path.rglob('*')
+                if p.is_file() and p.suffix.lower() in ARCHIVE_EXTS
+            )
+            if not archives:
+                break
+            for arch in archives:
+                _extract_one(arch)
+
+    return input_path
 
 
 def main():
@@ -309,7 +359,8 @@ def main():
         image_size=args.image_size,
         device=args.device,
     )
-    infer.infer_path(args.input, args.output)
+    resolved_input = resolve_and_extract_archives(args.input)
+    infer.infer_path(resolved_input, args.output)
     print(f"\nDone. Results saved to: {args.output}")
 
 
