@@ -51,17 +51,12 @@ This is an extended version of [DETRPose](https://github.com/SebastianJanampa/DE
 - 🔧 **Enhanced Inference Tools**: Improved inference scripts with custom category support
 - 📊 **Custom Category Management**: Easy configuration of custom object categories
 
-<p align="center">
-    <a href="https://paperswithcode.com/sota/multi-person-pose-estimation-on-crowdpose?p=detrpose-real-time-end-to-end-transformer">
-    <img src="https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/detrpose-real-time-end-to-end-transformer/multi-person-pose-estimation-on-crowdpose">
-    </a>
-</p>
-
 ## Key Technical Features
 
 DETRPose introduces:
 - **OKS-based Denoising**: A new denoising technique using Object Keypoint Similarity (OKS) metric for generating positive and negative queries
 - **Advanced Classification Head**: Variations of the LQE head and varifocal loss adapted from D-FINE
+- **DFL-based Bounding Box Head**: Distribution Focal Loss head (adapted from D-FINE) that predicts per-coordinate distributions decoded via an integral layer, replacing the standard MLP box regressor
 - **Real-time Performance**: Achieves state-of-the-art accuracy while maintaining real-time inference speeds
 - **End-to-end Architecture**: Fully transformer-based model without complex post-processing
 
