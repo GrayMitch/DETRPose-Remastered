@@ -31,6 +31,7 @@ def main(args, ):
     postprocessor = instantiate(cfg.postprocessor)
 
     class_mappings = {}
+    skeleton_connections = {}
     
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
@@ -39,6 +40,16 @@ def main(args, ):
         if 'class_mappings' in checkpoint:
             class_mappings = checkpoint['class_mappings']
             print("Found class mappings in checkpoint - will save alongside ONNX model")
+
+        # Extract skeleton connections from checkpoint
+        if 'skeleton_connections' in checkpoint:
+            raw_sk = checkpoint['skeleton_connections']
+            # Convert any ListConfig / non-plain types to plain Python lists
+            skeleton_connections = {
+                str(k): [list(pair) for pair in v]
+                for k, v in raw_sk.items()
+            }
+            print(f"Found skeleton connections for {len(skeleton_connections)} class(es) - will save alongside ONNX model")
         
         if 'ema' in checkpoint:
             state = checkpoint['ema']['module']
@@ -102,11 +113,6 @@ def main(args, ):
     print(f"Exported ONNX model to: {output_file}")
     
     # Save class mappings and skeleton connections alongside ONNX model
-    skeleton_connections = {}
-    if args.resume:
-        raw_ckpt = torch.load(args.resume, map_location='cpu', weights_only=False)
-        skeleton_connections = raw_ckpt.get('skeleton_connections', {})
-
     if class_mappings or skeleton_connections:
         json_path = output_file.replace('.onnx', '_class_mappings.json')
         save_class_mappings_json(class_mappings, json_path, skeleton_connections=skeleton_connections)

@@ -78,6 +78,8 @@ def main():
     parser.add_argument("--max-batch", type=int, default=4, help="Max batch size for optimization profile (default: 4)")
     parser.add_argument("--input-dir", type=str, default="onnx_engines", help="Input directory containing ONNX files")
     parser.add_argument("--output-dir", type=str, default="trt_engines", help="Output directory for engine files")
+    parser.add_argument("--json-only", action="store_true", default=False,
+                        help="Only copy class mapping JSONs from onnx_engines to trt_engines, skip engine build")
     args = parser.parse_args()
 
     input_dir = args.input_dir
@@ -89,6 +91,21 @@ def main():
         return
 
     os.makedirs(output_dir, exist_ok=True)
+
+    if args.json_only:
+        print("--json-only: copying class mapping JSONs only, skipping engine build\n")
+        for onnx_file in onnx_files:
+            engine_file = onnx_file.replace(".onnx", ".engine")
+            mappings_src = os.path.join(input_dir, onnx_file.replace(".onnx", "_class_mappings.json"))
+            if os.path.exists(mappings_src):
+                mappings_dst = os.path.join(output_dir, engine_file.replace(".engine", "_class_mappings.json"))
+                shutil.copy2(mappings_src, mappings_dst)
+                print(f"  Copied: {mappings_dst}")
+            else:
+                print(f"  No JSON found for: {onnx_file}")
+        print("\nDone.")
+        return
+
     print(f"Found {len(onnx_files)} ONNX file(s) to convert\n")
 
     for onnx_file in onnx_files:
@@ -101,7 +118,7 @@ def main():
                                min_batch=args.min_batch, opt_batch=args.opt_batch, max_batch=args.max_batch)
 
         if success:
-            # Copy class mappings JSON if it exists alongside the ONNX
+            # Copy class mappings JSON from onnx_engines alongside the built engine
             mappings_src = os.path.join(input_dir, onnx_file.replace(".onnx", "_class_mappings.json"))
             if os.path.exists(mappings_src):
                 mappings_dst = os.path.join(output_dir, engine_file.replace(".engine", "_class_mappings.json"))
