@@ -39,7 +39,7 @@
 
 ## About This Fork
 
-This is an extended version of [DETRPose](https://github.com/SebastianJanampa/DETRPose) with added support for **custom datasets** and **custom keypoint configurations**. The original DETRPose is the first real-time end-to-end transformer model for multi-person pose estimation, achieving state-of-the-art results on COCO and CrowdPose datasets.
+This is an extended version of [DETRPose](https://github.com/SebastianJanampa/DETRPose) with added support for **custom datasets** and **custom keypoint configurations**. The original DETRPose is the first real-time end-to-end transformer model for multi-person pose estimation, achieving state-of-the-art results on the COCO dataset.
 
 ### New Features
 
@@ -60,7 +60,7 @@ DETRPose introduces:
 - **Real-time Performance**: Achieves state-of-the-art accuracy while maintaining real-time inference speeds
 - **End-to-end Architecture**: Fully transformer-based model without complex post-processing
 
-> **Note**: For original DETRPose benchmarks and pre-trained weights on COCO2017 and CrowdPose, see the [original repository](https://github.com/SebastianJanampa/DETRPose). This fork focuses on custom dataset support with a simplified COCO format.
+> **Note**: For original DETRPose benchmarks and pre-trained weights on COCO2017, see the [original repository](https://github.com/SebastianJanampa/DETRPose). This fork focuses on custom dataset support with a simplified COCO format.
 
 ## Quick start
 
