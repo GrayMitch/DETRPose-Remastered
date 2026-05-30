@@ -484,40 +484,52 @@ class Trainer(object):
         }
         RED, GREEN, RESET = "\033[91m", "\033[92m", "\033[0m"
 
-        download_url = arch_configs[model_name]
         local_model_dir = './weights/dfine/'
 
         try:
-            # If the file doesn't exist locally, download from the URL
-            if safe_get_rank() == 0:
-                print(
-                    GREEN
-                    + "If the pretrained D-FINE can't be downloaded automatically. Please check your network connection."
-                    + RESET
-                )
-                print(
-                    GREEN
-                    + "Please check your network connection. Or download the model manually from "
-                    + RESET
-                    + f"{download_url}"
-                    + GREEN
-                    + " to "
-                    + RESET
-                    + f"{local_model_dir}."
-                    + RESET
-                )
-                state = torch.hub.load_state_dict_from_url(
-                    download_url, map_location="cpu", model_dir=local_model_dir
-                )
-                print(f"Loaded pretrained DFINE from URL.")
+            # If model_name is a direct file path, load it without downloading
+            if os.path.isfile(model_name):
+                if safe_get_rank() == 0:
+                    print(f"Loading pretrained weights from file: {model_name}")
+                safe_barrier()
+                state = torch.load(model_name, map_location="cpu", weights_only=False)
+            else:
+                if model_name not in arch_configs:
+                    raise KeyError(
+                        f"'{model_name}' is not a valid model name and is not an existing file path. "
+                        f"Valid names: {list(arch_configs.keys())}"
+                    )
+                download_url = arch_configs[model_name]
 
-            # Wait for rank 0 to download the model
-            safe_barrier()
+                # If the file doesn't exist locally, download from the URL
+                if safe_get_rank() == 0:
+                    print(
+                        GREEN
+                        + "If the pretrained D-FINE can't be downloaded automatically. Please check your network connection."
+                        + RESET
+                    )
+                    print(
+                        GREEN
+                        + "Please check your network connection. Or download the model manually from "
+                        + RESET
+                        + f"{download_url}"
+                        + GREEN
+                        + " to "
+                        + RESET
+                        + f"{local_model_dir}."
+                        + RESET
+                    )
+                    state = torch.hub.load_state_dict_from_url(
+                        download_url, map_location="cpu", model_dir=local_model_dir
+                    )
+                    print(f"Loaded pretrained DFINE from URL.")
 
-            # All processes load the downloaded model
-            model_path = local_model_dir  + model_name + ".pth"
+                # Wait for rank 0 to download the model
+                safe_barrier()
 
-            state = torch.load(model_path, map_location="cpu", weights_only=False)
+                # All processes load the downloaded model
+                model_path = local_model_dir + model_name + ".pth"
+                state = torch.load(model_path, map_location="cpu", weights_only=False)
 
             if "ema" in state:
                 print("USING EMA WEIGHTS!!!")
