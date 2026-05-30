@@ -19,7 +19,7 @@ max_size = 640
 __all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator", "NUM_CLASSES", "NUM_BODY_POINTS", "CLASS_MAPPINGS", "CLASS_SKELETONS"]
 
 # ── Data root ─────────────────────────────────────────────────────────────────
-DATA_ROOT = "./data/coco"
+DATA_ROOT = os.environ.get("DETRPOSE_DATA_ROOT", "/content/coco_data")
 TRAIN_DIR = os.path.join(DATA_ROOT, "train")
 VAL_DIR   = os.path.join(DATA_ROOT, "val")
 
