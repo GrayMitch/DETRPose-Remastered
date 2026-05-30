@@ -29,7 +29,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    header = 'Epoch: [{}]'.format(epoch + 1)  # Display as 1-indexed
     print_freq = args.print_freq
     
     sub_batch_size = batch_size // args.grad_accum_steps

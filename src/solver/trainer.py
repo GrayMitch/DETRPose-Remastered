@@ -89,9 +89,9 @@ class Trainer(object):
                     shutil.copytree(item, backup_path / item.name, dirs_exist_ok=True)
             
             self.last_backup_epoch = epoch
-            print(f'[Backup] Epoch {epoch}: Output backed up to Google Drive at {backup_path}')
+            print(f'[Backup] Epoch {epoch+1}: Output backed up to Google Drive at {backup_path}')
         except Exception as e:
-            print(f'[Backup] Warning: Backup failed for epoch {epoch}: {e}')
+            print(f'[Backup] Warning: Backup failed for epoch {epoch+1}: {e}')
 
     def _setup(self,):
         """Avoid instantiating unnecessary classes"""
@@ -110,9 +110,9 @@ class Trainer(object):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_without_ddp = instantiate(self.cfg.model).to(self.device)
-        self.model_without_ddp = torch.compile(self.model_without_ddp, mode="reduce-overhead") # Enable PyTorch 2.0 compilation for faster training
+        self.model_without_ddp = torch.compile(self.model_without_ddp, mode="reduce-overhead")  # Enable PyTorch 2.0 compilation for faster training
         self.model = dist_utils.warp_model(
-            self.model_without_ddp.to(args.device), 
+            self.model_without_ddp,  # Already on device, no need to transfer again
             sync_bn=args.sync_bn, 
             find_unused_parameters=args.find_unused_params
             )
@@ -283,7 +283,7 @@ class Trainer(object):
                 # Save numbered checkpoint at intervals
                 save_numbered = (epoch + 1) % args.save_checkpoint_interval == 0
                 if save_numbered:
-                    numbered_checkpoint = self.output_dir / f'checkpoint{epoch:04}.pth'
+                    numbered_checkpoint = self.output_dir / f'checkpoint{epoch+1:04}.pth'  # Use 1-indexed naming
                     checkpoint_paths.append(numbered_checkpoint)
                 
                 # Save all checkpoints
@@ -342,7 +342,7 @@ class Trainer(object):
                 _isbest = self.best_map_holder.update(map_regular, epoch, is_ema=False)
 
                 if _isbest:
-                    print(f"New best achieved @ epoch {epoch:04d}!!!...")
+                    print(f"New best achieved @ epoch {epoch+1:04d}!!!...")
                     checkpoint_path = self.output_dir / 'checkpoint_best_regular.pth'
                     weights = {
                         'model': self.model_without_ddp.state_dict(),
@@ -385,7 +385,7 @@ class Trainer(object):
                     if "keypoints" in self.evaluator.coco_eval:
                         filenames = ['latest.pth']
                         if epoch % 50 == 0:
-                            filenames.append(f'{epoch:03}.pth')
+                            filenames.append(f'{epoch+1:03}.pth')  # Use 1-indexed naming
                         for name in filenames:
                             torch.save(self.evaluator.coco_eval["keypoints"].eval,
                                        self.output_dir / "eval" / name)
