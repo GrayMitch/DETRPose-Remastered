@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from .assigner import simota_assign
 from .head import RTMOHead
-from src.misc.box_ops import box_xyxy_to_cxcywh
+from src.misc.box_ops import box_xyxy_to_cxcywh, box_cxcywh_to_xyxy
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,17 +171,29 @@ class RTMOCriterion(nn.Module):
 
         for b_idx in range(B):
             tgt = targets[b_idx]
-            gt_boxes  = tgt["boxes"].to(device)      # [G, 4]
+            gt_boxes  = tgt["boxes"].to(device)      # [G, 4] normalized cxcywh (from Normalize transform)
             gt_labels = tgt["labels"].to(device)     # [G]
-            gt_kpts   = tgt["keypoints"].to(device)  # [G, K, 3]
+            gt_kpts   = tgt["keypoints"].to(device)  # [G, K*3] flat normalized (from Normalize transform)
             gt_area   = tgt.get("area", None)
 
-            # Compute area from boxes if not provided
+            # Un-normalize targets — Normalize transform outputs normalized coords
+            img_size = tgt["size"]
+            H_img = float(img_size[0])
+            W_img = float(img_size[1])
+            scale_box = gt_boxes.new_tensor([W_img, H_img, W_img, H_img])
+            gt_boxes = box_cxcywh_to_xyxy(gt_boxes * scale_box)
+            K = self.num_body_points
+            gt_kpts_xy  = gt_kpts[:, :K * 2].view(-1, K, 2) * gt_kpts.new_tensor([W_img, H_img])
+            gt_kpts_vis = gt_kpts[:, K * 2:]                  # [G, K]
+            gt_kpts = torch.cat([gt_kpts_xy, gt_kpts_vis.unsqueeze(-1)], dim=-1)  # [G, K, 3]
+
+            # Compute area from boxes if not provided, else scale from normalized
             if gt_area is None:
-                w = (gt_boxes[:, 2] - gt_boxes[:, 0]).clamp(min=0)
-                h = (gt_boxes[:, 3] - gt_boxes[:, 1]).clamp(min=0)
-                gt_area = w * h
-            gt_area = gt_area.to(device)
+                bw = (gt_boxes[:, 2] - gt_boxes[:, 0]).clamp(min=0)
+                bh = (gt_boxes[:, 3] - gt_boxes[:, 1]).clamp(min=0)
+                gt_area = bw * bh
+            else:
+                gt_area = gt_area.to(device) * (H_img * W_img)
 
             # Image size heuristic from anchor grid extent
             img_w = int(anchor_pts[:, 0].max().item() + strides.max().item())
