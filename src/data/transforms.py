@@ -147,6 +147,15 @@ def resize(image, target, size, max_size=None):
             return get_size_with_aspect_ratio(image_size, size, max_size)
 
     size = get_size(image.size, size, max_size)
+
+    # Fast path: image is already the target size — skip resize and scaling
+    if image.size == (size[1], size[0]):  # PIL size is (W, H), size is (H, W)
+        if target is not None:
+            target = target.copy()
+            h, w = size
+            target["size"] = torch.tensor([h, w])
+        return image, target
+
     rescaled_image = F.resize(image, size)
 
     if target is None:
