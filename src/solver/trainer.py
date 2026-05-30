@@ -125,7 +125,7 @@ class Trainer(object):
         torch._dynamo.config.suppress_errors = True
         torch._dynamo.config.verbose = False
         
-        self.model_without_ddp = torch.compile(self.model_without_ddp, mode="reduce-overhead")  # Enable PyTorch 2.0 compilation for faster training
+        self.model_without_ddp #= torch.compile(self.model_without_ddp, mode="reduce-overhead")  # Enable PyTorch 2.0 compilation for faster training
         self.model = dist_utils.warp_model(
             self.model_without_ddp,  # Already on device, no need to transfer again
             sync_bn=args.sync_bn, 
