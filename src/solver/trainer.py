@@ -541,7 +541,7 @@ class Trainer(object):
             for k in pretrain_state_dict:
                 if ("decoder" in k):
                     continue
-                new_state_dict[k] = state['model'][k]
+                new_state_dict[k] = pretrain_state_dict[k]
 
             print(f"⚠️  Loading weights for the backbone and decoder from {model_name} ⚠️")
             missing_keys, unexpected_keys = self.model_without_ddp.load_state_dict(new_state_dict, strict=False)
