@@ -19,7 +19,22 @@ max_size = 640
 __all__ = ["dataset_train", "dataset_val", "dataset_test", "evaluator", "NUM_CLASSES", "NUM_BODY_POINTS", "CLASS_MAPPINGS", "CLASS_SKELETONS"]
 
 # ── Data root ─────────────────────────────────────────────────────────────────
-DATA_ROOT = os.environ.get("DETRPOSE_DATA_ROOT", "/content/coco_data")
+# Try multiple locations for data (for cross-platform compatibility)
+_candidate_roots = [
+    os.environ.get("DETRPOSE_DATA_ROOT"),
+    "/content/coco_data",
+    "./data/coco"
+]
+DATA_ROOT = None
+for root in _candidate_roots:
+    if root and os.path.isdir(root):
+        DATA_ROOT = root
+        break
+
+# Fallback if no valid data root found (e.g., during export)
+if DATA_ROOT is None:
+    DATA_ROOT = os.environ.get("DETRPOSE_DATA_ROOT", "/content/coco_data")
+
 TRAIN_DIR = os.path.join(DATA_ROOT, "train")
 VAL_DIR   = os.path.join(DATA_ROOT, "val")
 
@@ -58,29 +73,38 @@ def _ensure_dir(dir_path: str) -> None:
 			f"Neither directory '{dir_path}' nor archive '{archive}' found."
 		)
 
-
-_ensure_dir(TRAIN_DIR)
-_ensure_dir(VAL_DIR)
-
 TRAIN_ANN = os.path.join(TRAIN_DIR, "coco_instances.json")
 VAL_ANN   = os.path.join(VAL_DIR,   "coco_instances.json")
 TRAIN_IMG = os.path.join(TRAIN_DIR, "images")
 VAL_IMG   = os.path.join(VAL_DIR,   "images")
 
 # ── Dynamically derive dataset parameters ────────────────────────────────────
-with open(TRAIN_ANN) as _f:
-	_ann = json.load(_f)
-
-_cats = _ann["categories"]
-# num_classes must cover the highest category ID (IDs may be non-contiguous)
-NUM_CLASSES     = max(c["id"] for c in _cats) + 1
-NUM_BODY_POINTS = max(len(c["keypoints"]) for c in _cats)
-
-# Create class mapping dictionary: {class_id: class_name}
-CLASS_MAPPINGS = {c["id"]: c["name"] for c in _cats}
-
-# Skeleton connections per class: {class_id: [[kp_a, kp_b], ...]}
-CLASS_SKELETONS = {c["id"]: c.get("skeleton", []) for c in _cats}
+# Only validate data and read annotations if they exist (skip during export/inference)
+if os.path.isfile(TRAIN_ANN):
+	_ensure_dir(TRAIN_DIR)
+	_ensure_dir(VAL_DIR)
+	
+	with open(TRAIN_ANN) as _f:
+		_ann = json.load(_f)
+	
+	_cats = _ann["categories"]
+	# num_classes must cover the highest category ID (IDs may be non-contiguous)
+	NUM_CLASSES     = max(c["id"] for c in _cats) + 1
+	NUM_BODY_POINTS = max(len(c["keypoints"]) for c in _cats)
+	
+	# Create class mapping dictionary: {class_id: class_name}
+	CLASS_MAPPINGS = {c["id"]: c["name"] for c in _cats}
+	
+	# Skeleton connections per class: {class_id: [[kp_a, kp_b], ...]}
+	CLASS_SKELETONS = {c["id"]: c.get("skeleton", []) for c in _cats}
+else:
+	# Fallback defaults for export/inference (will be overridden from checkpoint)
+	print(f"[dataset_custom] Warning: Annotation file not found at {TRAIN_ANN}")
+	print(f"[dataset_custom] Using placeholder values. Ensure checkpoint contains correct metadata.")
+	NUM_CLASSES = 24  # Placeholder - will be loaded from checkpoint
+	NUM_BODY_POINTS = 11  # Placeholder
+	CLASS_MAPPINGS = {}  # Placeholder
+	CLASS_SKELETONS = {}  # Placeholder
 
 # ─────────────────────────────────────────────────────────────────────────────
 
