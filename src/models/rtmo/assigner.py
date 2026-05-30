@@ -98,40 +98,35 @@ def simota_assign(
     cost = lambda_cls * cls_cost - lambda_iou * iou_mat  # [N, G]
 
     # Mask out non-candidates with large cost
-    cost[~in_box] = 1e8
+    cost = cost.masked_fill(~in_box, 1e8)
 
     # ── 3. Dynamic-k selection ───────────────────────────────────────────────
     # For each GT, select top-k anchors by IoU, sum those IoUs → dynamic_k
-    n_candidates = in_box.sum(0).clamp(min=1)  # [G]
     k = topk_candidates
 
     # top-k IoU per GT (ignore non-candidates by masking)
-    iou_for_k = iou_mat.clone()
-    iou_for_k[~in_box] = 0.0
+    iou_for_k = iou_mat.masked_fill(~in_box, 0.0)
     topk_iou, _ = iou_for_k.topk(min(k, N), dim=0, largest=True)  # [k, G]
     dynamic_k = topk_iou.sum(0).clamp(min=1).int()                 # [G]
 
-    # ── 4. Select anchors per GT using dynamic_k ────────────────────────────
-    # sort cost per GT, take the lowest dynamic_k[g] indices
-    sorted_cost, sorted_idx = cost.sort(0)  # [N, G]
+    # ── 4. Vectorized selection + conflict resolution (no Python loops) ─────
+    _, sorted_idx = cost.sort(0)  # [N, G] – anchor indices sorted by cost per GT
 
-    assigned = torch.full((N,), -1, dtype=torch.long, device=device)
+    # rank_matrix[i, g] = rank of anchor i for GT g (0 = lowest cost)
+    rank_matrix = torch.empty(N, G, dtype=torch.long, device=device)
+    rank_matrix.scatter_(0, sorted_idx,
+                         torch.arange(N, device=device)[:, None].expand(N, G))
 
-    for g in range(G):
-        dk = dynamic_k[g].item()
-        sel = sorted_idx[:dk, g]   # top-dk anchor indices for GT g
-        # Conflict resolve below; tentatively mark
-        for idx in sel:
-            existing = assigned[idx].item()
-            if existing == -1:
-                assigned[idx] = g
-            else:
-                # Keep the assignment with lower cost
-                if cost[idx, g].item() < cost[idx, existing].item():
-                    assigned[idx] = g
+    # Select each anchor that ranks within dynamic_k for that GT AND is in-box
+    selection_mask = (rank_matrix < dynamic_k[None, :]) & in_box  # [N, G]
 
-    fg_mask = (assigned >= 0)
-    assigned_gt = assigned[fg_mask]
+    # Conflict resolution: anchors claimed by multiple GTs → keep lowest cost
+    # Non-selected entries get inf so argmin ignores them
+    cost_for_assign = cost.masked_fill(~selection_mask, float('inf'))
+    assigned_gt_all = cost_for_assign.argmin(dim=1)  # [N] – best GT per anchor
+
+    fg_mask = selection_mask.any(dim=1)              # [N]
+    assigned_gt = assigned_gt_all[fg_mask]
     assigned_cls = gt_labels[assigned_gt]
     assigned_box = gt_boxes[assigned_gt]
     assigned_iou = iou_mat[fg_mask, assigned_gt]
