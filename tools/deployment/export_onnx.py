@@ -56,6 +56,9 @@ def main(args, ):
         else:
             state = checkpoint['model']
 
+        # Strip _orig_mod. prefix added by torch.compile()
+        state = {k.replace('_orig_mod.', '', 1) if k.startswith('_orig_mod.') else k: v for k, v in state.items()}
+
         # NOTE load train mode state -> convert to deploy mode
         model.load_state_dict(state)
 

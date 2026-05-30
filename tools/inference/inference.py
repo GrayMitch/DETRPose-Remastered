@@ -80,6 +80,12 @@ class DETRPoseInference:
             for k, v in state_dict.items()
         }
 
+        # Strip _orig_mod. prefix added by torch.compile()
+        state_dict = {
+            k.replace("_orig_mod.", "", 1) if k.startswith("_orig_mod.") else k: v
+            for k, v in state_dict.items()
+        }
+
         print("Loading model weights...")
         self.model.load_state_dict(state_dict, strict=True)
 
