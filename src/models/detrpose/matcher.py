@@ -13,6 +13,12 @@ import torch
 import lapjv
 from torch import nn
 import numpy as np
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+# Module-level thread pool for parallel Hungarian matching across batch items.
+# lapjv is a C extension that releases the GIL, so threads run in true parallel.
+_MATCHER_POOL = ThreadPoolExecutor(max_workers=min(os.cpu_count() or 4, 16))
 
 
 def _lapjv_solve(cost_np):
@@ -109,9 +115,12 @@ class HungarianMatcher(nn.Module):
             C = self.cost_class * cost_class + self.cost_keypoints * cost_keypoints + self.cost_oks * cost_oks
             C = C.view(bs, num_queries, -1).cpu()
 
-        # Final cost matrix
+        # Final cost matrix - move to CPU once, then solve all batch items in parallel
         sizes = [len(v["boxes"]) for v in targets]
-        indices = [_lapjv_solve(c[i].numpy()) for i, c in enumerate(C.split(sizes, -1))]
+        cost_splits = C.split(sizes, -1)
+        futures = [_MATCHER_POOL.submit(_lapjv_solve, cost_splits[i][i].numpy())
+                   for i in range(len(sizes))]
+        indices = [f.result() for f in futures]
 
         if tgt_ids.shape[0] > 0:
             cost_mean_dict = {

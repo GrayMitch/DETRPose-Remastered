@@ -110,6 +110,21 @@ class Trainer(object):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_without_ddp = instantiate(self.cfg.model).to(self.device)
+        
+        # Suppress torch.compile warnings and verbose output
+        import warnings
+        warnings.filterwarnings('ignore', message='.*skipping cudagraphs.*')
+        warnings.filterwarnings('ignore', category=torch.jit.TracerWarning)
+        
+        # Suppress torch._dynamo verbose output
+        import logging
+        logging.getLogger("torch._dynamo").setLevel(logging.ERROR)
+        logging.getLogger("torch._inductor").setLevel(logging.ERROR)
+        
+        # Suppress CUDA graphs warnings
+        torch._dynamo.config.suppress_errors = True
+        torch._dynamo.config.verbose = False
+        
         self.model_without_ddp = torch.compile(self.model_without_ddp, mode="reduce-overhead")  # Enable PyTorch 2.0 compilation for faster training
         self.model = dist_utils.warp_model(
             self.model_without_ddp,  # Already on device, no need to transfer again
