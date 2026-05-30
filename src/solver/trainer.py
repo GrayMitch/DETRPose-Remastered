@@ -485,7 +485,7 @@ class Trainer(object):
         RED, GREEN, RESET = "\033[91m", "\033[92m", "\033[0m"
 
         download_url = arch_configs[model_name]
-        local_model_dir = './weight/dfine/'
+        local_model_dir = './weights/dfine/'
 
         try:
             # If the file doesn't exist locally, download from the URL

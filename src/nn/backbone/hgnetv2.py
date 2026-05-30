@@ -490,7 +490,7 @@ class HGNetv2(nn.Module):
                  freeze_at=-1,
                  freeze_norm=True,
                  pretrained=True,
-                 local_model_dir='weight/hgnetv2/',
+                 local_model_dir='weights/hgnetv2/',
                  for_pgi=False):
         super().__init__()
         self.use_lab = use_lab
