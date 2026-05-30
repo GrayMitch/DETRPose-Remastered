@@ -69,6 +69,13 @@ class RTMOPose(nn.Module):
 
         self.post_processor = post_processor
 
+    def deploy(self):
+        self.eval()
+        for m in self.modules():
+            if hasattr(m, "convert_to_deploy"):
+                m.convert_to_deploy()
+        return self
+
     # ──────────────────────────────────────────────────────────────────────────
     def forward(self, samples, targets=None):
         """
