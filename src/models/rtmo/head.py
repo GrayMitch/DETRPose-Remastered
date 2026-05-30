@@ -67,15 +67,19 @@ class RTMOHead(nn.Module):
         self.feat_strides = list(feat_strides)
         num_levels = len(feat_strides)
 
-        # Per-level branches (shared weights would also be fine)
-        self.cls_branches  = nn.ModuleList([_make_branch(in_channels, num_convs, act) for _ in range(num_levels)])
-        self.bbox_branches = nn.ModuleList([_make_branch(in_channels, num_convs, act) for _ in range(num_levels)])
-        self.kpt_branches  = nn.ModuleList([_make_branch(in_channels, num_convs, act) for _ in range(num_levels)])
+        # Channel split: cls branch gets the first half, pose branch (bbox+kpt) gets the second half.
+        # This halves the effective input channels for each branch (~2x head FLOPs reduction).
+        half = in_channels // 2
+
+        # Per-level branches
+        self.cls_branches  = nn.ModuleList([_make_branch(half, num_convs, act) for _ in range(num_levels)])
+        self.bbox_branches = nn.ModuleList([_make_branch(half, num_convs, act) for _ in range(num_levels)])
+        self.kpt_branches  = nn.ModuleList([_make_branch(half, num_convs, act) for _ in range(num_levels)])
 
         # Prediction heads
-        self.cls_preds  = nn.ModuleList([nn.Conv2d(in_channels, num_classes, 1) for _ in range(num_levels)])
-        self.bbox_preds = nn.ModuleList([nn.Conv2d(in_channels, 4, 1) for _ in range(num_levels)])          # ltrb
-        self.kpt_preds  = nn.ModuleList([nn.Conv2d(in_channels, num_body_points * 3, 1) for _ in range(num_levels)])  # xy + vis per kpt
+        self.cls_preds  = nn.ModuleList([nn.Conv2d(half, num_classes, 1) for _ in range(num_levels)])
+        self.bbox_preds = nn.ModuleList([nn.Conv2d(half, 4, 1) for _ in range(num_levels)])          # ltrb
+        self.kpt_preds  = nn.ModuleList([nn.Conv2d(half, num_body_points * 3, 1) for _ in range(num_levels)])  # xy + vis per kpt
 
         self._init_weights()
 
@@ -121,10 +125,12 @@ class RTMOHead(nn.Module):
             anchor_pts_list.append(anchors)
             stride_list.append(torch.full((H * W,), stride, device=feat.device, dtype=feat.dtype))
 
-            # Predictions
-            cls  = self.cls_preds[i](self.cls_branches[i](feat))    # [B, num_cls, H, W]
-            bbox = self.bbox_preds[i](self.bbox_branches[i](feat))  # [B, 4,       H, W]
-            kpt  = self.kpt_preds[i](self.kpt_branches[i](feat))    # [B, K*3,     H, W]
+            # Channel split: first half → cls, second half → pose (bbox + kpt)
+            cls_input, pose_input = feat.split(feat.size(1) // 2, dim=1)
+
+            cls  = self.cls_preds[i](self.cls_branches[i](cls_input))      # [B, num_cls, H, W]
+            bbox = self.bbox_preds[i](self.bbox_branches[i](pose_input))   # [B, 4,       H, W]
+            kpt  = self.kpt_preds[i](self.kpt_branches[i](pose_input))     # [B, K*3,     H, W]
 
             cls_list.append( cls.permute(0, 2, 3, 1).reshape(B, -1, self.num_classes))
             bbox_list.append(bbox.permute(0, 2, 3, 1).reshape(B, -1, 4))

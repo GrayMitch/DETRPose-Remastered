@@ -27,12 +27,14 @@ class RTMOPostProcess(nn.Module):
         score_threshold=0.3,
         nms_threshold=0.65,
         max_detections=300,
+        pre_nms_topk=1000,
         deploy_mode=False,
     ):
         super().__init__()
         self.score_threshold = score_threshold
         self.nms_threshold = nms_threshold
         self.max_detections = max_detections
+        self.pre_nms_topk = pre_nms_topk
         self.deploy_mode = deploy_mode
 
     @torch.no_grad()
@@ -93,6 +95,15 @@ class RTMOPostProcess(nn.Module):
             boxes      = boxes[keep]
             kpts       = kpts[keep]
             vis        = vis[keep]
+
+            # Pre-NMS top-K: cap candidates to avoid slow NMS when many boxes pass threshold
+            if max_scores.shape[0] > self.pre_nms_topk:
+                _, topk_idx = max_scores.topk(self.pre_nms_topk)
+                max_scores = max_scores[topk_idx]
+                labels     = labels[topk_idx]
+                boxes      = boxes[topk_idx]
+                kpts       = kpts[topk_idx]
+                vis        = vis[topk_idx]
 
             # NMS (class-aware via offset)
             keep_nms = batched_nms(boxes, max_scores, labels, self.nms_threshold)
