@@ -88,6 +88,7 @@ def oks_loss_rtmo(kpts_xy, gt_kpts_xy, gt_vis, gt_area, sigmas, eps=1e-6):
     sigmas:     [K]        per-keypoint sigma
     """
     variances = (sigmas * 2) ** 2   # [K]
+    variances = variances.to(gt_area.device)
     valid = (gt_vis > 0).float()    # [N, K]
 
     d2 = ((kpts_xy - gt_kpts_xy) ** 2).sum(-1)  # [N, K]
