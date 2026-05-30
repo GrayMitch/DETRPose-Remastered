@@ -110,7 +110,7 @@ class Trainer(object):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_without_ddp = instantiate(self.cfg.model).to(self.device)
-        self.model_without_ddp = torch.compile(self.model_without_ddp)
+        self.model_without_ddp = torch.compile(self.model_without_ddp, mode="max-autotune")
         self.model = dist_utils.warp_model(
             self.model_without_ddp.to(args.device), 
             sync_bn=args.sync_bn, 
