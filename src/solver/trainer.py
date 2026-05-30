@@ -67,7 +67,7 @@ class Trainer(object):
             return
             
         # Only backup on the specified interval
-        if epoch % args.backup_every_n_epochs != 0:
+        if (epoch + 1) % args.backup_every_n_epochs != 0:
             return
             
         # Avoid duplicate backups
@@ -334,7 +334,7 @@ class Trainer(object):
             module = self.ema.module if self.ema is not None else self.model
 
             eval_interval = getattr(args, 'eval_interval', 1)
-            should_eval = (epoch % eval_interval == 0) or (epoch == args.epochs - 1)
+            should_eval = ((epoch + 1) % eval_interval == 0) or (epoch == args.epochs - 1)
 
             if should_eval:
                 # eval
